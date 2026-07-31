@@ -3276,6 +3276,14 @@ static bool sort_albums(int new_sorting, bool from_settings)
 static void start_animation(void)
 {
     step = (target < center_slide.slide_index) ? -1 : 1;
+    /* While idle slide_frame sits exactly on a slide boundary. For
+     * step < 0 the centre is derived as (slide_frame >> 16) + 1, so
+     * index<<16 already belongs to the slide above it -- the counter
+     * has to start one unit inside the interval that maps to the
+     * current centre, or the first evaluation snaps the centre to the
+     * slide on the right. */
+    if (step < 0)
+        slide_frame = (center_index << 16) - 1;
     pf_state = pf_scrolling;
 }
 
@@ -3403,7 +3411,53 @@ static void update_scroll_animation(void)
         speed = 512 + 16384 * (PFREAL_ONE + fsin(ia)) / PFREAL_ONE;
     }
 
-    slide_frame += speed * step;
+    /* Advance by wall-clock, not per call. render_all_slides() cost
+     * varies with the settings -- turning parallel slides off widens
+     * the side slides and adds roughly a fifth to the pixel work -- and
+     * with a per-frame advance that showed up twice: fewer frames per
+     * second, and a flip that took proportionally longer because it
+     * still needed the same number of frames. Only the frame rate
+     * should move.
+     *
+     * The remainder is carried because HZ is 100, so a ~30ms frame is
+     * about three ticks and truncating each one would make the step
+     * size jitter by a third.
+     */
+    {
+        long now = *rb->current_tick;
+        int dt = now - pf_anim_last_tick;
+        int num, adv;
+
+        pf_anim_last_tick = now;
+        if (dt < 0)
+            dt = 0;
+        if (dt > HZ / 5)
+            dt = HZ / 5;    /* a stall must not teleport the flip */
+
+        num = speed * dt * PF_NOMINAL_FPS + pf_anim_frac;
+        adv = num / HZ;
+        pf_anim_frac = num - adv * HZ;
+
+        /* dt is clamped but adv is not. speed reaches 133120 and the
+         * clamp is 20 ticks, so one call can advance 798720 -- over
+         * twelve slides -- while target is never more than two away. A
+         * long frame would sail past it, the direction test at the end
+         * of this function would throw the flip into reverse, and
+         * center_index would meanwhile index pf_idx.album_index[] out
+         * of bounds in draw_album_text(), which does not range-check.
+         * Never advance beyond the target; for step < 0 stop one unit
+         * short so that (slide_frame >> 16) + 1 == target. */
+        {
+            int remain = (step < 0) ? slide_frame - (target << 16) + 1
+                                    : (target << 16) - slide_frame;
+            if (remain < 0)
+                remain = 0;
+            if (adv > remain)
+                adv = remain;
+        }
+
+        slide_frame += adv * step;
+    }
 
     int index = slide_frame >> 16;
     int pos = slide_frame & 0xffff;
@@ -3419,7 +3473,21 @@ static void update_scroll_animation(void)
     if (center_index != index) {
         center_index = index;
         rb->queue_post(&thread_q, EV_WAKEUP, 0);
+<<<<<<< HEAD
         slide_frame = index << 16;
+=======
+        /* Same one-unit offset as in start_animation(): index<<16 is
+         * the top of the step < 0 interval, not the bottom. */
+        slide_frame = (index << 16) - (step < 0 ? 1 : 0);
+        /* Recalculate pos/tick/ftick/fade for the snapped slide_frame.
+         * Without this, stale pre-snap values cause a one-frame alpha
+         * discontinuity (flash) at boundary crossings. */
+        pos = slide_frame & 0xffff;
+        neg = 65536 - pos;
+        tick = (step < 0) ? neg : pos;
+        ftick = (tick * PFREAL_ONE) >> 16;
+        fade = pos / 256;
+>>>>>>> 0a3446e729 (PictureFlow: fix the centre-slide flash properly, and bound the advance)
         center_slide.slide_index = center_index;
         for (i = 0; i < pf_cfg.num_slides; i++)
             left_slides[i].slide_index = center_index - 1 - i;
