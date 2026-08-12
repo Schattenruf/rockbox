@@ -1,22 +1,17 @@
-name: Build Mahjongg Rockbox Simulator
+name: Run Mahjongg Rockbox Simulator Screenshot
 
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - 'apps/plugins/mahjongg.c'
-      - 'apps/plugins/SOURCES'
-      - '.github/workflows/build-mahjongg-sim.yml'
 
 jobs:
-  build-simulator:
+  run-simulator:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install build dependencies
+      - name: Install build and GUI dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -31,7 +26,10 @@ jobs:
             libxext-dev \
             libxrender-dev \
             libpng-dev \
-            zip
+            zip \
+            xvfb \
+            xdotool \
+            imagemagick
 
       - name: Configure iPod Classic simulator
         run: |
@@ -44,15 +42,36 @@ jobs:
           cd build-sim
           make -j2
 
-      - name: Package simulator output
-        if: success()
+      - name: Install simulator files into simdisk
         run: |
           cd build-sim
-          zip -r ../rockbox-mahjongg-sim.zip . -x "*.o" "*.d"
+          make install
 
-      - name: Upload simulator artifact
-        if: success()
+      - name: Run simulator headlessly and capture screenshot
+        run: |
+          cd build-sim
+
+          Xvfb :99 -screen 0 1024x768x24 -ac &
+          XVFB_PID=$!
+          export DISPLAY=:99
+
+          ./rockboxui > simulator.log 2>&1 &
+          SIM_PID=$!
+
+          sleep 8
+
+          import -window root screenshot-start.png || true
+
+          kill $SIM_PID || true
+          kill $XVFB_PID || true
+
+      - name: Upload simulator screenshots and logs
         uses: actions/upload-artifact@v4
         with:
-          name: rockbox-mahjongg-sim
-          path: rockbox-mahjongg-sim.zip
+          name: rockbox-simulator-run
+          path: |
+            build-sim/screenshot-start.png
+            build-sim/simulator.log
+            build-sim/apps/plugins/mahjongg.rock
+            build-sim/apps/plugins/mahjongg.elf
+            build-sim/apps/plugins/mahjongg.map
