@@ -1,0 +1,58 @@
+name: Build Mahjongg Rockbox Simulator
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'apps/plugins/mahjongg.c'
+      - 'apps/plugins/SOURCES'
+      - '.github/workflows/build-mahjongg-sim.yml'
+
+jobs:
+  build-simulator:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            make \
+            gcc \
+            g++ \
+            perl \
+            python3 \
+            libsdl2-dev \
+            libx11-dev \
+            libxext-dev \
+            libxrender-dev \
+            libpng-dev \
+            zip
+
+      - name: Configure iPod Classic simulator
+        run: |
+          mkdir build-sim
+          cd build-sim
+          ../tools/configure --target=29 --type=S
+
+      - name: Build simulator
+        run: |
+          cd build-sim
+          make -j2
+
+      - name: Package simulator output
+        if: success()
+        run: |
+          cd build-sim
+          zip -r ../rockbox-mahjongg-sim.zip . -x "*.o" "*.d"
+
+      - name: Upload simulator artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rockbox-mahjongg-sim
+          path: rockbox-mahjongg-sim.zip
