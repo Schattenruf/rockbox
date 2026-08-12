@@ -22,7 +22,7 @@ lastfm_scrobbler_viewer.c
 logo.c
 lrcplayer.c
 mosaique.c
-mashjongg.c
+mahjongg.c
 main_menu_config.c
 playing_time.c
 properties.c
