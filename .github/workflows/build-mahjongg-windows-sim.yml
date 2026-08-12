@@ -1,0 +1,61 @@
+name: Build Mahjongg Windows Simulator
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'apps/plugins/mahjongg.c'
+      - 'apps/plugins/SOURCES'
+      - '.github/workflows/build-mahjongg-windows-sim.yml'
+
+jobs:
+  build-windows-simulator:
+    runs-on: windows-latest
+
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            base-devel
+            git
+            make
+            perl
+            python
+            zip
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-SDL2
+            mingw-w64-x86_64-libpng
+
+      - name: Configure iPod Classic simulator
+        run: |
+          mkdir build-win-sim
+          cd build-win-sim
+          ../tools/configure --target=29 --type=S
+
+      - name: Build simulator
+        run: |
+          cd build-win-sim
+          make -j2
+
+      - name: Package Windows simulator output
+        if: success()
+        run: |
+          cd build-win-sim
+          zip -r ../rockbox-mahjongg-windows-sim.zip . -x "*.o" "*.d"
+
+      - name: Upload Windows simulator artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rockbox-mahjongg-windows-sim
+          path: rockbox-mahjongg-windows-sim.zip
