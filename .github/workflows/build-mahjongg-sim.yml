@@ -47,9 +47,12 @@ jobs:
           cd build-sim
           make install
 
-      - name: Run simulator headlessly and capture screenshot
+      - name: Run Mahjongg plugin and capture screenshots
         run: |
           cd build-sim
+
+          # Put the plugin directly into the simulated disk root
+          cp apps/plugins/mahjongg.rock simdisk/mahjongg.rock
 
           Xvfb :99 -screen 0 1024x768x24 -ac &
           XVFB_PID=$!
@@ -58,9 +61,21 @@ jobs:
           ./rockboxui > simulator.log 2>&1 &
           SIM_PID=$!
 
+          # Wait for Rockbox main menu
           sleep 8
+          import -window root screenshot-01-main-menu.png || true
 
-          import -window root screenshot-start.png || true
+          # The simulator skin shows numeric keypad mappings.
+          # KP_5 should press the iPod center/select button.
+          # First KP_5 enters Files.
+          xdotool key KP_5
+          sleep 2
+          import -window root screenshot-02-files.png || true
+
+          # Second KP_5 should launch mahjongg.rock if it is selected.
+          xdotool key KP_5
+          sleep 4
+          import -window root screenshot-03-mahjongg.png || true
 
           kill $SIM_PID || true
           kill $XVFB_PID || true
@@ -68,9 +83,11 @@ jobs:
       - name: Upload simulator screenshots and logs
         uses: actions/upload-artifact@v4
         with:
-          name: rockbox-simulator-run
+          name: rockbox-mahjongg-run
           path: |
-            build-sim/screenshot-start.png
+            build-sim/screenshot-01-main-menu.png
+            build-sim/screenshot-02-files.png
+            build-sim/screenshot-03-mahjongg.png
             build-sim/simulator.log
             build-sim/apps/plugins/mahjongg.rock
             build-sim/apps/plugins/mahjongg.elf
