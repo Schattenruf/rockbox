@@ -12,6 +12,7 @@
 #include "plugin.h"
 #include "mahjongg_game.h"
 #include "mahjongg_game.c"
+#include "pluginbitmaps/mahjongg_tiles.h"
 /* #include "lib/playback_control.h" */
 
 /* ------------------------------------------------------------------------ */
@@ -181,32 +182,41 @@ static void tile_position(const struct mj_tile *t, int *x, int *y)
        + MJ_LEVEL_DY * t->lev;
 }
 
-static void draw_tile_box(int x, int y, int match, bool selected, bool cursor, bool hint)
-
+static void draw_tile_box(int x, int y, int picture, int match,
+                          bool selected, bool cursor, bool hint)
 {
 #if LCD_DEPTH > 1
     int oldfg = rb->lcd_get_foreground();
 #endif
+    int max_picture;
 
-    /*
-     * Dummy tile body.
-     * Later replace with:
-     *
-     * rb->lcd_bitmap_part(mahjong_tiles, ...);
-     */
-#if LCD_DEPTH > 1
-    rb->lcd_set_foreground(LCD_WHITE);
-#endif
-    rb->lcd_fillrect(x, y, MJ_TILE_W, MJ_TILE_H);
+    max_picture = BMPWIDTH_mahjongg_tiles / MJ_TILE_W;
+
+    if (max_picture <= 0) {
+        max_picture = 1;
+    }
+
+    if (picture < 0) {
+        picture = 0;
+    }
+
+    picture = picture % max_picture;
+
+    rb->lcd_bitmap_part(mahjongg_tiles,
+                        picture * MJ_TILE_W,
+                        0,
+                        STRIDE(SCREEN_MAIN,
+                               BMPWIDTH_mahjongg_tiles,
+                               BMPHEIGHT_mahjongg_tiles),
+                        x,
+                        y,
+                        MJ_TILE_W,
+                        MJ_TILE_H);
 
 #if LCD_DEPTH > 1
     rb->lcd_set_foreground(LCD_BLACK);
 #endif
-    rb->lcd_drawrect(x, y, MJ_TILE_W, MJ_TILE_H);
 
-    /*
-     * Very small match number for debugging.
-     */
     rb->lcd_putsxyf(x + 2, y + 5, "%02d", match);
 
     if (selected) {
@@ -215,6 +225,7 @@ static void draw_tile_box(int x, int y, int match, bool selected, bool cursor, b
 #endif
         rb->lcd_drawrect(x + 1, y + 1, MJ_TILE_W - 2, MJ_TILE_H - 2);
     }
+
     if (hint) {
 #if LCD_DEPTH > 1
         rb->lcd_set_foreground(LCD_RGBPACK(255, 80, 180));
@@ -301,7 +312,7 @@ for (i = 0; i < mj_game_tile_count(); i++) {
         continue;
     }
 
-    draw_tile_box(x, y, t->match,
+    draw_tile_box(x, y, t->picture, t->match,
                   i == mj_game_selected_tile(),
                   i == mj_game_cursor_tile(),
                   i == hint_tile_a || i == hint_tile_b);
