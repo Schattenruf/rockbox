@@ -51,7 +51,7 @@ jobs:
         run: |
           cd build-sim
 
-          # Put the plugin directly into the simulated disk root
+          # Put plugin directly into simulated disk root
           cp apps/plugins/mahjongg.rock simdisk/mahjongg.rock
 
           Xvfb :99 -screen 0 1024x768x24 -ac &
@@ -61,34 +61,56 @@ jobs:
           ./rockboxui > simulator.log 2>&1 &
           SIM_PID=$!
 
-          # Wait for Rockbox main menu
           sleep 8
+
+          # Find and focus simulator window
+          xdotool search --onlyvisible --name "Rockbox" > windows.txt || true
+          cat windows.txt || true
+
+          WIN_ID=$(head -n 1 windows.txt || true)
+
+          if [ -n "$WIN_ID" ]; then
+            xdotool windowactivate "$WIN_ID" || true
+            xdotool windowfocus "$WIN_ID" || true
+            sleep 1
+          fi
+
           import -window root screenshot-01-main-menu.png || true
 
-          # The simulator skin shows numeric keypad mappings.
-          # KP_5 should press the iPod center/select button.
-          # First KP_5 enters Files.
-          xdotool key KP_5
-          sleep 2
-          import -window root screenshot-02-files.png || true
+          # Try several possible Select key variants.
+          # On some systems numpad 5 is KP_5, on others it behaves as KP_Begin.
+          xdotool key --clearmodifiers KP_5 || true
+          sleep 1
+          xdotool key --clearmodifiers KP_Begin || true
+          sleep 1
+          xdotool key --clearmodifiers Return || true
+          sleep 3
 
-          # Second KP_5 should launch mahjongg.rock if it is selected.
-          xdotool key KP_5
+          import -window root screenshot-02-after-select.png || true
+
+          # Try select again to launch mahjongg.rock if we are in Files.
+          xdotool key --clearmodifiers KP_5 || true
+          sleep 1
+          xdotool key --clearmodifiers KP_Begin || true
+          sleep 1
+          xdotool key --clearmodifiers Return || true
           sleep 4
-          import -window root screenshot-03-mahjongg.png || true
+
+          import -window root screenshot-03-after-second-select.png || true
 
           kill $SIM_PID || true
           kill $XVFB_PID || true
-
+          
       - name: Upload simulator screenshots and logs
         uses: actions/upload-artifact@v4
         with:
           name: rockbox-mahjongg-run
           path: |
             build-sim/screenshot-01-main-menu.png
-            build-sim/screenshot-02-files.png
-            build-sim/screenshot-03-mahjongg.png
+            build-sim/screenshot-02-after-select.png
+            build-sim/screenshot-03-after-second-select.png
             build-sim/simulator.log
+            build-sim/windows.txt
             build-sim/apps/plugins/mahjongg.rock
             build-sim/apps/plugins/mahjongg.elf
             build-sim/apps/plugins/mahjongg.map
