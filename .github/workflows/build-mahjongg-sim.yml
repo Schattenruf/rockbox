@@ -50,21 +50,11 @@ jobs:
           cd build-sim
           make install
 
-      - name: Run simulator with debug logging
+      - name: Run Mahjongg plugin through iPod 6G simulator
         run: |
           cd build-sim
 
           cp apps/plugins/mahjongg.rock simdisk/mahjongg.rock || true
-
-          echo "=== Files in build-sim ===" > debug.txt
-          ls -la >> debug.txt
-
-          echo "=== Files in simdisk ===" >> debug.txt
-          ls -la simdisk >> debug.txt || true
-
-          echo "=== rockboxui file info ===" >> debug.txt
-          file ./rockboxui >> debug.txt || true
-          ldd ./rockboxui >> debug.txt || true
 
           export SDL_VIDEODRIVER=x11
           export SDL_AUDIODRIVER=dummy
@@ -73,68 +63,68 @@ jobs:
           XVFB_PID=$!
           export DISPLAY=:99
 
-          sleep 2
-
-          # Optional lightweight window manager, helps some SDL/X11 windows map correctly
           openbox > openbox.log 2>&1 &
           OPENBOX_PID=$!
 
           sleep 2
 
-          echo "=== Starting rockboxui ===" >> debug.txt
           ./rockboxui > simulator.log 2>&1 &
           SIM_PID=$!
 
-          sleep 15
+          sleep 10
 
-          echo "=== Process list ===" >> debug.txt
-          ps aux | grep -E "rockboxui|Xvfb|openbox" >> debug.txt || true
-
-          echo "=== Simulator log ===" >> debug.txt
-          cat simulator.log >> debug.txt || true
-
-          echo "=== X window tree ===" >> debug.txt
+          echo "=== Window tree ===" > debug.txt
           xwininfo -root -tree >> debug.txt || true
 
-          echo "=== xdotool search Rockbox ===" >> debug.txt
-          xdotool search --name "Rockbox" >> debug.txt 2>&1 || true
+          echo "=== Search iPod 6G ===" >> debug.txt
+          xdotool search --name "iPod 6G" >> debug.txt 2>&1 || true
 
-          echo "=== Screenshot root ===" >> debug.txt
-          scrot screenshot-01-root.png || true
-          import -window root screenshot-02-import-root.png || true
-
-          WIN_ID=$(xdotool search --onlyvisible --name "Rockbox" | head -n 1 || true)
+          WIN_ID=$(xdotool search --name "iPod 6G" | head -n 1 || true)
           echo "WIN_ID=$WIN_ID" >> debug.txt
 
           if [ -n "$WIN_ID" ]; then
             xdotool windowactivate "$WIN_ID" || true
             xdotool windowfocus "$WIN_ID" || true
-            sleep 2
+            sleep 1
 
-            import -window "$WIN_ID" screenshot-03-rockbox-window.png || true
+            import -window "$WIN_ID" screenshot-01-ipod-main.png || true
 
-            # Try center/select via mouse click, based on prior 1024x768 image
-            xdotool mousemove 512 526 click 1 || true
-            sleep 4
-            import -window root screenshot-04-after-click.png || true
+            # Center/select button, relative to the iPod 6G window.
+            # Window is 350x591. Center button is roughly x=175,y=418.
+            xdotool mousemove --window "$WIN_ID" 175 418 click 1
+            sleep 3
+            import -window "$WIN_ID" screenshot-02-after-files-select.png || true
+
+            # Select again, should launch mahjongg.rock if selected in Files.
+            xdotool mousemove --window "$WIN_ID" 175 418 click 1
+            sleep 5
+            import -window "$WIN_ID" screenshot-03-after-plugin-select.png || true
+
+            # One extra select just in case the file browser needed another entry.
+            xdotool mousemove --window "$WIN_ID" 175 418 click 1
+            sleep 5
+            import -window "$WIN_ID" screenshot-04-after-third-select.png || true
           fi
+
+          echo "=== Simulator log ===" >> debug.txt
+          cat simulator.log >> debug.txt || true
 
           kill $SIM_PID || true
           kill $OPENBOX_PID || true
-          kill $XVFB_PID || true       
+          kill $XVFB_PID || true
           
-      - name: Upload simulator debug artifacts
+      - name: Upload simulator run artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: rockbox-simulator-debug
+          name: rockbox-mahjongg-run
           path: |
             build-sim/debug.txt
             build-sim/simulator.log
             build-sim/openbox.log
-            build-sim/screenshot-01-root.png
-            build-sim/screenshot-02-import-root.png
-            build-sim/screenshot-03-rockbox-window.png
-            build-sim/screenshot-04-after-click.png
+            build-sim/screenshot-01-ipod-main.png
+            build-sim/screenshot-02-after-files-select.png
+            build-sim/screenshot-03-after-plugin-select.png
+            build-sim/screenshot-04-after-third-select.png
             build-sim/apps/plugins/mahjongg.rock
             build-sim/apps/plugins/mahjongg.elf
             build-sim/apps/plugins/mahjongg.map
