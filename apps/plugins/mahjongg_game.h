@@ -25,6 +25,7 @@ struct mj_tile {
     bool removed;
 
     short number;
+    short picture;
     short match;
 
     short row;
@@ -50,6 +51,9 @@ const struct mj_tile *mj_game_tile(int index);
 
 int mj_game_remaining(void);
 int mj_game_moves(void);
+unsigned int mj_game_seed(void);
+bool mj_game_save(int fd);
+bool mj_game_load(int fd);
 
 int mj_game_cursor_tile(void);
 int mj_game_selected_tile(void);

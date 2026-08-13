@@ -13,6 +13,7 @@ struct mj_game_state {
     int tile_count;
     int remaining;
     int moves;
+    unsigned int seed;
 
     int cursor_tile;
     int selected_tile;
@@ -23,9 +24,68 @@ struct mj_game_state {
 
 static struct mj_game_state game;
 
-/* ------------------------------------------------------------------------ */
-/* Utility                                                                   */
-/* ------------------------------------------------------------------------ */
+static unsigned int mj_rand_state;
+
+static void mj_srand(unsigned int seed)
+{
+    if (seed == 0) {
+        seed = 1;
+    }
+
+    mj_rand_state = seed;
+}
+
+static unsigned int mj_rand(void)
+{
+    mj_rand_state = mj_rand_state * 1103515245u + 12345u;
+    return (mj_rand_state >> 16) & 0x7fffu;
+}
+
+/* --------------------*----------------------------------*---------------- */
+/* Utility    *                                  *                           */
+/* -*----------------------------------*----------------------------------* */
+
+static int mj_tile_picture_from_number(int number)
+{
+    if (number < 0) {
+        return 0;
+    }
+
+    if (number < 136) {
+        return number / 4;
+    }
+
+    if (number < 140) {
+        return 34 + (number - 136);
+    }
+
+    if (number < 144) {
+        return 38 + (number - 140);
+    }
+
+    return 0;
+}
+
+static int mj_tile_match_from_number(int number)
+{
+    if (number < 0) {
+        return 0;
+    }
+
+    if (number < 136) {
+        return number / 4;
+    }
+
+    if (number < 140) {
+        return 34;
+    }
+
+    if (number < 144) {
+        return 35;
+    }
+
+    return 0;
+}
 
 static void clear_grid(void)
 {
@@ -235,6 +295,7 @@ static bool place_tile(int row, int col, int lev)
     tile->real = true;
     tile->removed = false;
     tile->number = game.tile_count;
+    tile->picture = 0;
 
     /*
      * Phase 1:
@@ -242,7 +303,8 @@ static bool place_tile(int row, int col, int lev)
      * This is not yet the original image/picture mapping, but every group has
      * four matching tiles, which is correct for Mahjongg Solitaire.
      */
-    tile->match = game.tile_count / 4;
+    //tile->match = 0;
+    tile->match = 0;
 
     tile->row = row;
     tile->col = col;
@@ -307,6 +369,169 @@ static void layout_default(void)
     place_tile(9, 30, 0);
     place_tile(9, 15, 4);
 }
+
+static void assign_random_matches(unsigned int seed)
+{
+    int i;
+    int j;
+    int tmp;
+    int tile_numbers[MJ_MAX_TILES];
+
+    for (i = 0; i < MJ_MAX_TILES; i++) {
+        tile_numbers[i] = i;
+    }
+
+    mj_srand(seed);
+
+    for (i = MJ_MAX_TILES - 1; i > 0; i--) {
+        j = mj_rand() % (i + 1);
+
+        tmp = tile_numbers[i];
+        tile_numbers[i] = tile_numbers[j];
+        tile_numbers[j] = tmp;
+    }
+
+    for (i = 0; i < game.tile_count && i < MJ_MAX_TILES; i++) {
+        game.tiles[i].number = tile_numbers[i];
+        game.tiles[i].picture = mj_tile_picture_from_number(tile_numbers[i]);
+        game.tiles[i].match = mj_tile_match_from_number(tile_numbers[i]);
+    }
+}
+
+static int collect_open_tiles(int *open_tiles, int max_tiles)
+{
+    int i;
+    int count = 0;
+
+    for (i = 0; i < game.tile_count && count < max_tiles; i++) {
+        if (mj_game_tile_open(i)) {
+            open_tiles[count] = i;
+            count++;
+        }
+    }
+
+    return count;
+}
+
+static bool choose_random_open_pair(int *a, int *b)
+{
+    int open_tiles[MJ_MAX_TILES];
+    int count;
+    int first;
+    int second;
+
+    count = collect_open_tiles(open_tiles, MJ_MAX_TILES);
+
+    if (count < 2) {
+        return false;
+    }
+
+    first = mj_rand() % count;
+
+    second = mj_rand() % (count - 1);
+    if (second >= first) {
+        second++;
+    }
+
+    *a = open_tiles[first];
+    *b = open_tiles[second];
+
+    return true;
+}
+
+static bool assign_solvable_matches(unsigned int seed)
+{
+    int i;
+    int j;
+    int tmp;
+    int npairs;
+    int a;
+    int b;
+
+    int pair_a[MJ_MAX_TILES / 2];
+    int pair_b[MJ_MAX_TILES / 2];
+    int pair_match[MJ_MAX_TILES / 2];
+
+    if (game.tile_count != MJ_MAX_TILES) {
+        return false;
+    }
+
+    mj_srand(seed);
+
+    for (i = 0; i < game.tile_count; i++) {
+        game.tiles[i].removed = false;
+    }
+
+    game.remaining = game.tile_count;
+    init_blockage();
+
+    npairs = game.tile_count / 2;
+
+    for (i = 0; i < npairs; i++) {
+        if (!choose_random_open_pair(&a, &b)) {
+            for (j = 0; j < game.tile_count; j++) {
+                game.tiles[j].removed = false;
+            }
+
+            game.remaining = game.tile_count;
+            init_blockage();
+
+            return false;
+        }
+
+        pair_a[i] = a;
+        pair_b[i] = b;
+
+        game.tiles[a].removed = true;
+        game.tiles[b].removed = true;
+        game.remaining -= 2;
+
+        init_blockage();
+    }
+
+    for (i = 0; i < npairs; i++) {
+        pair_match[i] = i;
+    }
+
+    for (i = npairs - 1; i > 0; i--) {
+        j = mj_rand() % (i + 1);
+
+        tmp = pair_match[i];
+        pair_match[i] = pair_match[j];
+        pair_match[j] = tmp;
+    }
+
+    for (i = 0; i < npairs; i++) {
+        int tile_number_a;
+        int tile_number_b;
+
+        tile_number_a = pair_match[i] * 2;
+        tile_number_b = tile_number_a + 1;
+
+        game.tiles[pair_a[i]].number = tile_number_a;
+        game.tiles[pair_a[i]].picture = mj_tile_picture_from_number(tile_number_a);
+        game.tiles[pair_a[i]].match = mj_tile_match_from_number(tile_number_a);
+
+        game.tiles[pair_b[i]].number = tile_number_b;
+        game.tiles[pair_b[i]].picture = mj_tile_picture_from_number(tile_number_b);
+        game.tiles[pair_b[i]].match = mj_tile_match_from_number(tile_number_b);
+    }
+
+    for (i = 0; i < game.tile_count; i++) {
+        game.tiles[i].removed = false;
+    }
+
+    game.remaining = game.tile_count;
+    game.moves = 0;
+    game.undo_count = 0;
+    game.cursor_tile = -1;
+    game.selected_tile = -1;
+
+    init_blockage();
+
+    return true;
+}
+
 
 /* ------------------------------------------------------------------------ */
 /* Cursor                                                                    */
@@ -532,22 +757,177 @@ int mj_game_possible_moves(void)
     return count;
 }
 
+
+#define MJ_SAVE_MAGIC 0x4d4a4731u
+#define MJ_SAVE_VERSION 1u
+
+struct mj_save_header {
+    unsigned int magic;
+    unsigned int version;
+    unsigned int seed;
+    int tile_count;
+    int moves;
+    int cursor_tile;
+    int selected_tile;
+    int undo_count;
+};
+
+struct mj_save_tile {
+    unsigned char removed;
+};
+
+struct mj_save_move {
+    short a;
+    short b;
+};
+
+static bool mj_write_all(int fd, const void *buf, size_t size)
+{
+    return rb->write(fd, buf, size) == (ssize_t)size;
+}
+
+static bool mj_read_all(int fd, void *buf, size_t size)
+{
+    return rb->read(fd, buf, size) == (ssize_t)size;
+}
+
+bool mj_game_save(int fd)
+{
+    int i;
+    struct mj_save_header header;
+
+    header.magic = MJ_SAVE_MAGIC;
+    header.version = MJ_SAVE_VERSION;
+    header.seed = game.seed;
+    header.tile_count = game.tile_count;
+    header.moves = game.moves;
+    header.cursor_tile = game.cursor_tile;
+    header.selected_tile = game.selected_tile;
+    header.undo_count = game.undo_count;
+
+    if (!mj_write_all(fd, &header, sizeof(header))) {
+        return false;
+    }
+
+    for (i = 0; i < game.tile_count; i++) {
+        struct mj_save_tile tile;
+
+        tile.removed = game.tiles[i].removed ? 1 : 0;
+
+        if (!mj_write_all(fd, &tile, sizeof(tile))) {
+            return false;
+        }
+    }
+
+    for (i = 0; i < game.undo_count; i++) {
+        struct mj_save_move move;
+
+        move.a = game.undo_stack[i].a;
+        move.b = game.undo_stack[i].b;
+
+        if (!mj_write_all(fd, &move, sizeof(move))) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool mj_game_load(int fd)
+{
+    int i;
+    int remaining;
+    struct mj_save_header header;
+    struct mj_save_tile saved_tiles[MJ_MAX_TILES];
+    struct mj_save_move saved_moves[MJ_MAX_TILES / 2];
+
+    if (!mj_read_all(fd, &header, sizeof(header))) {
+        return false;
+    }
+
+    if (header.magic != MJ_SAVE_MAGIC ||
+        header.version != MJ_SAVE_VERSION ||
+        header.tile_count != MJ_MAX_TILES ||
+        header.undo_count < 0 ||
+        header.undo_count > MJ_MAX_TILES / 2) {
+        return false;
+    }
+
+    for (i = 0; i < header.tile_count; i++) {
+        if (!mj_read_all(fd, &saved_tiles[i], sizeof(saved_tiles[i]))) {
+            return false;
+        }
+    }
+
+    for (i = 0; i < header.undo_count; i++) {
+        if (!mj_read_all(fd, &saved_moves[i], sizeof(saved_moves[i]))) {
+            return false;
+        }
+    }
+
+    mj_game_init_default(header.seed);
+
+    remaining = 0;
+
+    for (i = 0; i < game.tile_count; i++) {
+        game.tiles[i].removed = saved_tiles[i].removed ? true : false;
+
+        if (!game.tiles[i].removed) {
+            remaining++;
+        }
+    }
+
+    game.remaining = remaining;
+    game.moves = header.moves;
+    game.cursor_tile = header.cursor_tile;
+    game.selected_tile = header.selected_tile;
+    game.undo_count = header.undo_count;
+
+    for (i = 0; i < game.undo_count; i++) {
+        game.undo_stack[i].a = saved_moves[i].a;
+        game.undo_stack[i].b = saved_moves[i].b;
+    }
+
+    if (game.cursor_tile < 0 || game.cursor_tile >= game.tile_count) {
+        game.cursor_tile = -1;
+    }
+
+    if (game.selected_tile < 0 ||
+        game.selected_tile >= game.tile_count ||
+        game.tiles[game.selected_tile].removed) {
+        game.selected_tile = -1;
+    }
+
+    init_blockage();
+
+    if (!mj_game_tile_open(game.cursor_tile)) {
+        game.cursor_tile = find_next_open_tile(-1, 1);
+    }
+
+    return true;
+}
+
+
 /* ------------------------------------------------------------------------ */
 /* Public accessors                                                          */
 /* ------------------------------------------------------------------------ */
 
 void mj_game_init_default(unsigned int seed)
 {
-    (void)seed;
-
     game.tile_count = 0;
     game.remaining = 0;
     game.moves = 0;
+    game.seed = seed;
     game.cursor_tile = -1;
     game.selected_tile = -1;
     game.undo_count = 0;
 
     layout_default();
+
+    if (!assign_solvable_matches(seed)) {
+        assign_random_matches(seed);
+    }
+
     init_blockage();
 
     game.cursor_tile = find_next_open_tile(-1, 1);
@@ -575,6 +955,11 @@ int mj_game_remaining(void)
 int mj_game_moves(void)
 {
     return game.moves;
+}
+
+unsigned int mj_game_seed(void)
+{
+    return game.seed;
 }
 
 int mj_game_cursor_tile(void)
