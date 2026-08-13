@@ -31,10 +31,10 @@
  * First test sizes.
  * Later these should be derived from actual bitmap dimensions.
  */
-#define MJ_TILE_W       14
-#define MJ_TILE_H       18
-#define MJ_TILE_XSTEP    7
-#define MJ_TILE_YSTEP    9
+#define MJ_TILE_W       18
+#define MJ_TILE_H       22
+#define MJ_TILE_XSTEP    9
+#define MJ_TILE_YSTEP   11
 #define MJ_LEVEL_DX      2
 #define MJ_LEVEL_DY     -2
 
@@ -217,7 +217,7 @@ static void draw_tile_box(int x, int y, int picture, int match,
     rb->lcd_set_foreground(LCD_BLACK);
 #endif
 
-    rb->lcd_putsxyf(x + 2, y + 5, "%02d", match);
+    (void)match;
 
     if (selected) {
 #if LCD_DEPTH > 1
