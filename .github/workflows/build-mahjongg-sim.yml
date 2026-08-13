@@ -47,55 +47,67 @@ jobs:
           cd build-sim
           make install
 
-      - name: Run Mahjongg plugin and capture screenshots
+      - name: Run simulator debug capture
         run: |
           cd build-sim
 
-          # Put plugin directly into simulated disk root
-          cp apps/plugins/mahjongg.rock simdisk/mahjongg.rock
+          cp apps/plugins/mahjongg.rock simdisk/mahjongg.rock || true
 
           Xvfb :99 -screen 0 1024x768x24 -ac &
           XVFB_PID=$!
           export DISPLAY=:99
 
+          sleep 2
+
+          echo "=== DISPLAY ==="
+          echo "$DISPLAY"
+
+          echo "=== Starting rockboxui ==="
           ./rockboxui > simulator.log 2>&1 &
           SIM_PID=$!
 
-          sleep 8
-          import -window root screenshot-01-main-menu.png || true
+          sleep 10
 
-          # Click iPod center/select button.
-          # Coordinates are based on the 1024x768 screenshot:
-          # center button is visually around x=512, y=526.
-          xdotool mousemove 512 526 click 1
-          sleep 3
-          import -window root screenshot-02-after-center-click.png || true
+          echo "=== Process list ==="
+          ps aux | grep rockboxui || true
 
-          # Click center/select again.
-          # If File browser opened and mahjongg.rock is selected,
-          # this should launch the plugin.
-          xdotool mousemove 512 526 click 1
-          sleep 5
-          import -window root screenshot-03-after-second-center-click.png || true
+          echo "=== Simulator log ==="
+          cat simulator.log || true
 
-          # Try one more center click in case the file browser needs it.
-          xdotool mousemove 512 526 click 1
-          sleep 5
-          import -window root screenshot-04-after-third-center-click.png || true
+          echo "=== X windows ==="
+          xwininfo -root -tree > xwindows.txt || true
+          cat xwindows.txt || true
+
+          echo "=== xdotool search ==="
+          xdotool search --all "" > xdotool-windows.txt || true
+          cat xdotool-windows.txt || true
+
+          import -window root screenshot-01-root.png || true
+
+          WIN_ID=$(xdotool search --onlyvisible --name "Rockbox" | head -n 1 || true)
+          echo "WIN_ID=$WIN_ID" > selected-window.txt
+
+          if [ -n "$WIN_ID" ]; then
+            xdotool windowactivate "$WIN_ID" || true
+            xdotool windowfocus "$WIN_ID" || true
+            sleep 2
+            import -window "$WIN_ID" screenshot-02-rockbox-window.png || true
+          fi
 
           kill $SIM_PID || true
           kill $XVFB_PID || true
           
-      - name: Upload simulator screenshots and logs
+      - name: Upload simulator debug artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: rockbox-mahjongg-run
+          name: rockbox-simulator-debug
           path: |
-            build-sim/screenshot-01-main-menu.png
-            build-sim/screenshot-02-after-center-click.png
-            build-sim/screenshot-03-after-second-center-click.png
-            build-sim/screenshot-04-after-third-center-click.png
+            build-sim/screenshot-01-root.png
+            build-sim/screenshot-02-rockbox-window.png
             build-sim/simulator.log
+            build-sim/xwindows.txt
+            build-sim/xdotool-windows.txt
+            build-sim/selected-window.txt
             build-sim/apps/plugins/mahjongg.rock
             build-sim/apps/plugins/mahjongg.elf
             build-sim/apps/plugins/mahjongg.map
