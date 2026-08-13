@@ -62,41 +62,26 @@ jobs:
           SIM_PID=$!
 
           sleep 8
-
-          # Find and focus simulator window
-          xdotool search --onlyvisible --name "Rockbox" > windows.txt || true
-          cat windows.txt || true
-
-          WIN_ID=$(head -n 1 windows.txt || true)
-
-          if [ -n "$WIN_ID" ]; then
-            xdotool windowactivate "$WIN_ID" || true
-            xdotool windowfocus "$WIN_ID" || true
-            sleep 1
-          fi
-
           import -window root screenshot-01-main-menu.png || true
 
-          # Try several possible Select key variants.
-          # On some systems numpad 5 is KP_5, on others it behaves as KP_Begin.
-          xdotool key --clearmodifiers KP_5 || true
-          sleep 1
-          xdotool key --clearmodifiers KP_Begin || true
-          sleep 1
-          xdotool key --clearmodifiers Return || true
+          # Click iPod center/select button.
+          # Coordinates are based on the 1024x768 screenshot:
+          # center button is visually around x=512, y=526.
+          xdotool mousemove 512 526 click 1
           sleep 3
+          import -window root screenshot-02-after-center-click.png || true
 
-          import -window root screenshot-02-after-select.png || true
+          # Click center/select again.
+          # If File browser opened and mahjongg.rock is selected,
+          # this should launch the plugin.
+          xdotool mousemove 512 526 click 1
+          sleep 5
+          import -window root screenshot-03-after-second-center-click.png || true
 
-          # Try select again to launch mahjongg.rock if we are in Files.
-          xdotool key --clearmodifiers KP_5 || true
-          sleep 1
-          xdotool key --clearmodifiers KP_Begin || true
-          sleep 1
-          xdotool key --clearmodifiers Return || true
-          sleep 4
-
-          import -window root screenshot-03-after-second-select.png || true
+          # Try one more center click in case the file browser needs it.
+          xdotool mousemove 512 526 click 1
+          sleep 5
+          import -window root screenshot-04-after-third-center-click.png || true
 
           kill $SIM_PID || true
           kill $XVFB_PID || true
@@ -107,10 +92,10 @@ jobs:
           name: rockbox-mahjongg-run
           path: |
             build-sim/screenshot-01-main-menu.png
-            build-sim/screenshot-02-after-select.png
-            build-sim/screenshot-03-after-second-select.png
+            build-sim/screenshot-02-after-center-click.png
+            build-sim/screenshot-03-after-second-center-click.png
+            build-sim/screenshot-04-after-third-center-click.png
             build-sim/simulator.log
-            build-sim/windows.txt
             build-sim/apps/plugins/mahjongg.rock
             build-sim/apps/plugins/mahjongg.elf
             build-sim/apps/plugins/mahjongg.map
