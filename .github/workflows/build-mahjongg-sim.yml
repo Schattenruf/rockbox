@@ -29,7 +29,10 @@ jobs:
             zip \
             xvfb \
             xdotool \
-            imagemagick
+            imagemagick \
+            x11-utils \
+            scrot \
+            openbox
 
       - name: Configure iPod Classic simulator
         run: |
@@ -47,11 +50,24 @@ jobs:
           cd build-sim
           make install
 
-      - name: Run simulator debug capture
+      - name: Run simulator with debug logging
         run: |
           cd build-sim
 
           cp apps/plugins/mahjongg.rock simdisk/mahjongg.rock || true
+
+          echo "=== Files in build-sim ===" > debug.txt
+          ls -la >> debug.txt
+
+          echo "=== Files in simdisk ===" >> debug.txt
+          ls -la simdisk >> debug.txt || true
+
+          echo "=== rockboxui file info ===" >> debug.txt
+          file ./rockboxui >> debug.txt || true
+          ldd ./rockboxui >> debug.txt || true
+
+          export SDL_VIDEODRIVER=x11
+          export SDL_AUDIODRIVER=dummy
 
           Xvfb :99 -screen 0 1024x768x24 -ac &
           XVFB_PID=$!
@@ -59,55 +75,66 @@ jobs:
 
           sleep 2
 
-          echo "=== DISPLAY ==="
-          echo "$DISPLAY"
+          # Optional lightweight window manager, helps some SDL/X11 windows map correctly
+          openbox > openbox.log 2>&1 &
+          OPENBOX_PID=$!
 
-          echo "=== Starting rockboxui ==="
+          sleep 2
+
+          echo "=== Starting rockboxui ===" >> debug.txt
           ./rockboxui > simulator.log 2>&1 &
           SIM_PID=$!
 
-          sleep 10
+          sleep 15
 
-          echo "=== Process list ==="
-          ps aux | grep rockboxui || true
+          echo "=== Process list ===" >> debug.txt
+          ps aux | grep -E "rockboxui|Xvfb|openbox" >> debug.txt || true
 
-          echo "=== Simulator log ==="
-          cat simulator.log || true
+          echo "=== Simulator log ===" >> debug.txt
+          cat simulator.log >> debug.txt || true
 
-          echo "=== X windows ==="
-          xwininfo -root -tree > xwindows.txt || true
-          cat xwindows.txt || true
+          echo "=== X window tree ===" >> debug.txt
+          xwininfo -root -tree >> debug.txt || true
 
-          echo "=== xdotool search ==="
-          xdotool search --all "" > xdotool-windows.txt || true
-          cat xdotool-windows.txt || true
+          echo "=== xdotool search Rockbox ===" >> debug.txt
+          xdotool search --name "Rockbox" >> debug.txt 2>&1 || true
 
-          import -window root screenshot-01-root.png || true
+          echo "=== Screenshot root ===" >> debug.txt
+          scrot screenshot-01-root.png || true
+          import -window root screenshot-02-import-root.png || true
 
           WIN_ID=$(xdotool search --onlyvisible --name "Rockbox" | head -n 1 || true)
-          echo "WIN_ID=$WIN_ID" > selected-window.txt
+          echo "WIN_ID=$WIN_ID" >> debug.txt
 
           if [ -n "$WIN_ID" ]; then
             xdotool windowactivate "$WIN_ID" || true
             xdotool windowfocus "$WIN_ID" || true
             sleep 2
-            import -window "$WIN_ID" screenshot-02-rockbox-window.png || true
+
+            import -window "$WIN_ID" screenshot-03-rockbox-window.png || true
+
+            # Try center/select via mouse click, based on prior 1024x768 image
+            xdotool mousemove 512 526 click 1 || true
+            sleep 4
+            import -window root screenshot-04-after-click.png || true
           fi
 
           kill $SIM_PID || true
-          kill $XVFB_PID || true
+          kill $OPENBOX_PID || true
+          kill $XVFB_PID || true       
           
       - name: Upload simulator debug artifacts
         uses: actions/upload-artifact@v4
         with:
           name: rockbox-simulator-debug
           path: |
-            build-sim/screenshot-01-root.png
-            build-sim/screenshot-02-rockbox-window.png
+            build-sim/debug.txt
             build-sim/simulator.log
-            build-sim/xwindows.txt
-            build-sim/xdotool-windows.txt
-            build-sim/selected-window.txt
+            build-sim/openbox.log
+            build-sim/screenshot-01-root.png
+            build-sim/screenshot-02-import-root.png
+            build-sim/screenshot-03-rockbox-window.png
+            build-sim/screenshot-04-after-click.png
             build-sim/apps/plugins/mahjongg.rock
             build-sim/apps/plugins/mahjongg.elf
             build-sim/apps/plugins/mahjongg.map
