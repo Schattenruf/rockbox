@@ -23,6 +23,7 @@ logo.c
 lrcplayer.c
 mosaique.c
 mahjongg.c
+mahjongg_game.c
 main_menu_config.c
 playing_time.c
 properties.c
