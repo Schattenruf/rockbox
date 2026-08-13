@@ -10,6 +10,7 @@
  ****************************************************************************/
 
 #include "plugin.h"
+#include "mahjongg_game.h"
 /*#include "lib/playback_control.h"
 
 /* ------------------------------------------------------------------------ */
@@ -111,275 +112,28 @@
 #define MJ_NEED_LASTBUTTON
 #endif
 
-/* ------------------------------------------------------------------------ */
-/* Temporary tile/game model                                                 */
-/* ------------------------------------------------------------------------ */
-
-/*
- * This is deliberately simple.
- * Later this should be replaced by a cleaned C port of xmahjongg's:
- *
- *   class Tile  -> struct mj_tile
- *   class Game  -> struct mj_game
- */
-struct mj_tile {
-    bool real;
-    bool removed;
-
-    short number;
-    short match;
-
-    short row;
-    short col;
-    short lev;
-
-    short coverage;
-    short blocked;
-};
-
-struct mj_game {
-    struct mj_tile tiles[MJ_MAX_TILES];
-
-    int tile_count;
-    int remaining;
-
-    int cursor_tile;
-    int selected_tile;
-
-    int moves;
-};
-
-static struct mj_game game;
-
-/* ------------------------------------------------------------------------ */
-/* Utility                                                                   */
-/* ------------------------------------------------------------------------ */
-
-static bool tile_open(const struct mj_tile *t)
+static void start_new_game(void)
 {
-    return t->real && !t->removed && !t->blocked && !t->coverage;
-}
-
-static bool tiles_match(int a, int b)
-{
-    if (a < 0 || b < 0 || a >= game.tile_count || b >= game.tile_count)
-        return false;
-
-    if (a == b)
-        return false;
-
-    if (!tile_open(&game.tiles[a]) || !tile_open(&game.tiles[b]))
-        return false;
-
-    return game.tiles[a].match == game.tiles[b].match;
-}
-
-/* ------------------------------------------------------------------------ */
-/* Temporary layout                                                          */
-/* ------------------------------------------------------------------------ */
-
-/*
- * This mirrors the default xmahjongg layout idea in a simplified way.
- * Later we should port layout_default() from xmahjongg game.cc more exactly.
- */
-static void add_tile(short row, short col, short lev, short match)
-{
-    struct mj_tile *t;
-
-    if (game.tile_count >= MJ_MAX_TILES)
-        return;
-
-    t = &game.tiles[game.tile_count];
-
-    t->real = true;
-    t->removed = false;
-
-    t->number = game.tile_count;
-    t->match = match;
-
-    t->row = row;
-    t->col = col;
-    t->lev = lev;
-
-    t->coverage = 0;
-    t->blocked = 0;
-
-    game.tile_count++;
-    game.remaining++;
-}
-
-/*
- * Placeholder layout.
- * Not a full 144-tile turtle yet, but enough to test rendering and cursor.
- */
-static void init_dummy_layout(void)
-{
-    int i;
-    int r, c;
-
-    game.tile_count = 0;
-    game.remaining = 0;
-    game.cursor_tile = -1;
-    game.selected_tile = -1;
-    game.moves = 0;
-
-    /*
-     * 8 x 6 base layer = 48 tiles.
-     * Enough for early display testing.
-     */
-    i = 0;
-    for (r = 0; r < 6; r++) {
-        for (c = 0; c < 8; c++) {
-            add_tile(4 + r * 2, 8 + c * 2, 0, i / 2);
-            i++;
-        }
-    }
-
-    /*
-     * Small second layer.
-     */
-    for (r = 0; r < 4; r++) {
-        for (c = 0; c < 6; c++) {
-            add_tile(6 + r * 2, 10 + c * 2, 1, i / 2);
-            i++;
-        }
-    }
-
-    /*
-     * For the skeleton, fake every tile as open.
-     * Later xmahjongg's init_blockage() replaces this.
-     */
-    for (i = 0; i < game.tile_count; i++) {
-        game.tiles[i].coverage = 0;
-        game.tiles[i].blocked = 0;
-    }
-
-    if (game.tile_count > 0)
-        game.cursor_tile = 0;
-}
-
-/* ------------------------------------------------------------------------ */
-/* Cursor logic                                                              */
-/* ------------------------------------------------------------------------ */
-
-static int find_next_open_tile(int start, int direction)
-{
-    int i;
-    int idx;
-
-    if (game.tile_count <= 0)
-        return -1;
-
-    idx = start;
-
-    for (i = 0; i < game.tile_count; i++) {
-        idx += direction;
-
-        if (idx < 0)
-            idx = game.tile_count - 1;
-        else if (idx >= game.tile_count)
-            idx = 0;
-
-        if (tile_open(&game.tiles[idx]))
-            return idx;
-    }
-
-    return -1;
-}
-
-static void cursor_next(void)
-{
-    int next = find_next_open_tile(game.cursor_tile, 1);
-
-    if (next >= 0)
-        game.cursor_tile = next;
-}
-
-static void cursor_prev(void)
-{
-    int prev = find_next_open_tile(game.cursor_tile, -1);
-
-    if (prev >= 0)
-        game.cursor_tile = prev;
-}
-
-/* ------------------------------------------------------------------------ */
-/* Game actions                                                              */
-/* ------------------------------------------------------------------------ */
-
-static void deselect_tile(void)
-{
-    game.selected_tile = -1;
-}
-
-static void remove_pair(int a, int b)
-{
-    game.tiles[a].removed = true;
-    game.tiles[b].removed = true;
-
-    game.remaining -= 2;
-    game.moves++;
-
-    deselect_tile();
-
-    /*
-     * Later:
-     *   - call mj_game_remove_pair()
-     *   - update coverage/blockage
-     *   - push undo record
-     */
-    game.cursor_tile = find_next_open_tile(game.cursor_tile, 1);
-}
-
-static void select_current_tile(void)
-{
-    int cur = game.cursor_tile;
-
-    if (cur < 0 || cur >= game.tile_count)
-        return;
-
-    if (!tile_open(&game.tiles[cur]))
-        return;
-
-    if (game.selected_tile < 0) {
-        game.selected_tile = cur;
-        return;
-    }
-
-    if (game.selected_tile == cur) {
-        deselect_tile();
-        return;
-    }
-
-    if (tiles_match(game.selected_tile, cur)) {
-        remove_pair(game.selected_tile, cur);
-    } else {
-        /*
-         * Replace selection if it does not match.
-         * This feels good on Click Wheel.
-         */
-        game.selected_tile = cur;
-    }
+    mj_game_init_default((unsigned int)*rb->current_tick);
 }
 
 static void undo_move(void)
 {
-    /*
-     * Placeholder.
-     * Later this should call the xmahjongg-derived undo implementation.
-     */
-    rb->splash(HZ / 2, "Undo not yet implemented");
+    if (!mj_game_undo()) {
+        rb->splash(HZ / 2, "Nothing to undo");
+    }
 }
 
 static void show_hint(void)
 {
-    /*
-     * Placeholder.
-     * Later:
-     *   - scan for two open tiles with same match id
-     *   - select/highlight them temporarily
-     */
-    rb->splash(HZ / 2, "Hint not yet implemented");
+    int a;
+    int b;
+
+    if (mj_game_find_hint(&a, &b)) {
+        rb->splashf(HZ, "Hint: %d + %d", a, b);
+    } else {
+        rb->splash(HZ, "No moves");
+    }
 }
 
 /* ------------------------------------------------------------------------ */
@@ -459,12 +213,18 @@ static void draw_tile_box(int x, int y, int match, bool selected, bool cursor)
 
 static void draw_status_bar(void)
 {
-    rb->lcd_putsxyf(2, 2, "Left:%d Moves:%d", game.remaining, game.moves);
+    rb->lcd_putsxyf(2, 2, "Left:%d Moves:%d",
+                    mj_game_remaining(),
+                    mj_game_moves());
 
-    if (game.selected_tile >= 0)
-        rb->lcd_putsxy(2, 12, "Selected");
-    else
-        rb->lcd_putsxy(2, 12, "Select pair");
+    rb->lcd_putsxyf(2, 12, "Moves:%d",
+                    mj_game_possible_moves());
+
+    if (mj_game_selected_tile() >= 0) {
+        rb->lcd_putsxy(2, 22, "Selected");
+    } else {
+        rb->lcd_putsxy(2, 22, "Select pair");
+    }
 }
 
 static void update_screen(void)
@@ -488,25 +248,28 @@ static void update_screen(void)
      * Later we should port xmahjongg's display_order_dfs()
      * from board.cc for correct overlap handling.
      */
-    for (i = 0; i < game.tile_count; i++) {
-        struct mj_tile *t = &game.tiles[i];
+for (i = 0; i < mj_game_tile_count(); i++) {
+    const struct mj_tile *t = mj_game_tile(i);
 
-        if (!t->real || t->removed)
-            continue;
-
-        tile_position(t, &x, &y);
-
-        /*
-         * Skip tiles outside display.
-         */
-        if (x + MJ_TILE_W < 0 || x >= LCD_WIDTH ||
-            y + MJ_TILE_H < 0 || y >= LCD_HEIGHT)
-            continue;
-
-        draw_tile_box(x, y, t->match,
-                      i == game.selected_tile,
-                      i == game.cursor_tile);
+    if (t == NULL) {
+        continue;
     }
+
+    if (!t->real || t->removed) {
+        continue;
+    }
+
+    tile_position(t, &x, &y);
+
+    if (x + MJ_TILE_W < 0 || x >= LCD_WIDTH ||
+        y + MJ_TILE_H < 0 || y >= LCD_HEIGHT) {
+        continue;
+    }
+
+    draw_tile_box(x, y, t->match,
+                  i == mj_game_selected_tile(),
+                  i == mj_game_cursor_tile());
+}
 
     rb->lcd_update();
 }
@@ -584,7 +347,7 @@ static int mahjongg_menu(void)
                 return MJ_MENU_RESUME;
 
             case MJ_MENU_NEW_GAME:
-                init_dummy_layout();
+                start_new_game();
                 return MJ_MENU_RESUME;
 
             case MJ_MENU_HELP:
@@ -624,13 +387,13 @@ static enum plugin_status mahjongg_loop(void)
         switch (button) {
             case MJ_PREV:
             case MJ_PREV | BUTTON_REPEAT:
-                cursor_prev();
+                mj_game_cursor_prev();
                 update_screen();
                 break;
 
             case MJ_NEXT:
             case MJ_NEXT | BUTTON_REPEAT:
-                cursor_next();
+                mj_game_cursor_next();
                 update_screen();
                 break;
 
@@ -644,7 +407,7 @@ static enum plugin_status mahjongg_loop(void)
                  * Optional navigation.
                  * For now, same as previous tile.
                  */
-                cursor_prev();
+                mj_game_cursor_prev();
                 update_screen();
                 break;
 #endif
@@ -659,7 +422,7 @@ static enum plugin_status mahjongg_loop(void)
                  * Optional navigation.
                  * For now, same as next tile.
                  */
-                cursor_next();
+                mj_game_cursor_next();
                 update_screen();
                 break;
 #endif
@@ -669,7 +432,7 @@ static enum plugin_status mahjongg_loop(void)
                 if (lastbutton != MJ_SELECT_PRE)
                     break;
 #endif
-                select_current_tile();
+                mj_game_select_current();
                 update_screen();
                 break;
 
@@ -747,7 +510,7 @@ enum plugin_status plugin_start(const void *parameter)
     loaded = load_game();
 
     if (loaded != 0) {
-        init_dummy_layout();
+        start_new_game();
     }
 
     update_screen();
