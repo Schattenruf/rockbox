@@ -32,12 +32,24 @@
  * First test sizes.
  * Later these should be derived from actual bitmap dimensions.
  */
-#define MJ_TILE_W       26
-#define MJ_TILE_H       32
+#define MJ_TILE_GAP_PX 1
+#define MJ_TILE_W       28
+#define MJ_TILE_H       36
 #define MJ_TILE_XSTEP   11
 #define MJ_TILE_YSTEP   14
-#define MJ_LEVEL_DX      4
-#define MJ_LEVEL_DY     -4
+#define MJ_LEVEL_DX      5
+#define MJ_VISUAL_ROW_NUDGE_PX 8
+#define MJ_VISUAL_RIGHT_NUDGE_X 5
+#define MJ_VISUAL_RIGHT_NUDGE_Y 2
+#define MJ_VISUAL_LEFT_PULL_X   -8
+#define MJ_VISUAL_LEFT_PULL_Y    5
+#define MJ_VISUAL_RIGHT_PULL_X  12
+#define MJ_VISUAL_RIGHT_PULL_Y   5
+#define MJ_VISUAL_OPEN_PULL_X   7
+#define MJ_VISUAL_OPEN_PULL_Y   2
+#define MJ_VISUAL_EXACT_RIGHT_PULL_X 16
+#define MJ_VISUAL_EXACT_RIGHT_PULL_Y 4
+#define MJ_LEVEL_DY     -5
 
 #define MJ_MAX_TILES   144
 #define MJ_ROWS         24
@@ -429,7 +441,7 @@ static void tile_position(const struct mj_tile *t, int *x, int *y)
      */
 
     const int layout_x = 16;
-    const int layout_y = 12;
+    const int layout_y = 4;
 
     *x = layout_x
        + MJ_TILE_XSTEP * t->col
@@ -438,18 +450,45 @@ static void tile_position(const struct mj_tile *t, int *x, int *y)
     *y = layout_y
        + MJ_TILE_YSTEP * t->row
        + MJ_LEVEL_DY * t->lev;
+
+
+
+
 }
 
 static void draw_tile_box(int x, int y, int picture, int match, int level,
-                          bool selected, bool cursor, bool hint)
+                          bool open, bool selected, bool cursor, bool hint)
 {
 #if LCD_DEPTH > 1
     int oldfg = rb->lcd_get_foreground();
 #endif
     int max_picture;
+    int normal_picture_count;
+    int sprite_picture;
     int shadow;
+    int gap;
+    int tx;
+    int ty;
+    int tw;
+    int th;
 
     (void)match;
+
+    gap = MJ_TILE_GAP_PX;
+    tx = x + gap;
+    ty = y + gap;
+    tw = MJ_TILE_W - gap * 2;
+    th = MJ_TILE_H - gap * 2;
+
+    if (tw < 4) {
+        tw = MJ_TILE_W;
+        tx = x;
+    }
+
+    if (th < 4) {
+        th = MJ_TILE_H;
+        ty = y;
+    }
 
     max_picture = BMPWIDTH_mahjongg_tiles / MJ_TILE_W;
 
@@ -457,11 +496,23 @@ static void draw_tile_box(int x, int y, int picture, int match, int level,
         max_picture = 1;
     }
 
+    normal_picture_count = max_picture;
+
+    if (max_picture >= 84) {
+        normal_picture_count = max_picture / 2;
+    }
+
     if (picture < 0) {
         picture = 0;
     }
 
-    picture = picture % max_picture;
+    picture = picture % normal_picture_count;
+    sprite_picture = picture;
+
+    if (!open && !selected && !cursor && !hint &&
+        max_picture >= normal_picture_count * 2) {
+        sprite_picture = picture + normal_picture_count;
+    }
 
     shadow = 2 + level;
 
@@ -472,98 +523,122 @@ static void draw_tile_box(int x, int y, int picture, int match, int level,
 #if LCD_DEPTH > 1
     rb->lcd_set_foreground(LCD_RGBPACK(28, 70, 26));
 #endif
-    rb->lcd_fillrect(x + shadow, y + shadow, MJ_TILE_W, MJ_TILE_H);
+    rb->lcd_fillrect(tx + shadow, ty + shadow, tw, th);
 
 #if LCD_DEPTH > 1
-    rb->lcd_set_foreground(LCD_RGBPACK(95, 85, 62));
+    rb->lcd_set_foreground(LCD_RGBPACK(105, 94, 70));
 #endif
-    rb->lcd_fillrect(x + MJ_TILE_W - 1, y + 2, shadow, MJ_TILE_H + shadow - 2);
-    rb->lcd_fillrect(x + 2, y + MJ_TILE_H - 1, MJ_TILE_W + shadow - 2, shadow);
+    rb->lcd_fillrect(tx + tw - 1, ty + 2, 1, th + shadow - 2);
+    rb->lcd_fillrect(tx + 2, ty + th - 1, tw + shadow - 2, 1);
 
     rb->lcd_bitmap_part(mahjongg_tiles,
-                        picture * MJ_TILE_W,
-                        0,
+                        sprite_picture * MJ_TILE_W + gap,
+                        gap,
                         STRIDE(SCREEN_MAIN,
                                BMPWIDTH_mahjongg_tiles,
                                BMPHEIGHT_mahjongg_tiles),
-                        x,
-                        y,
-                        MJ_TILE_W,
-                        MJ_TILE_H);
+                        tx,
+                        ty,
+                        tw,
+                        th);
 
     /*
-     * Extra right/bottom side faces. These make tiles on lower/right
-     * edges read as physical blocks instead of flat cards.
+     * Extra right/bottom side faces.
      */
 #if LCD_DEPTH > 1
     rb->lcd_set_foreground(LCD_RGBPACK(105, 94, 70));
 #endif
-    rb->lcd_fillrect(x + MJ_TILE_W, y + 3, 1, MJ_TILE_H + shadow - 3);
-    rb->lcd_fillrect(x + 3, y + MJ_TILE_H, MJ_TILE_W + shadow - 3, 1);
+    rb->lcd_fillrect(tx + tw, ty + 3, 1, th + shadow - 3);
+    rb->lcd_fillrect(tx + 3, ty + th, tw + shadow - 3, 1);
 
 #if LCD_DEPTH > 1
     rb->lcd_set_foreground(LCD_RGBPACK(45, 38, 28));
 #endif
-    rb->lcd_vline(x + MJ_TILE_W + 1, y + 4, y + MJ_TILE_H + shadow - 2);
-    rb->lcd_hline(x + 4, x + MJ_TILE_W + shadow - 2, y + MJ_TILE_H + 1);
+    rb->lcd_vline(tx + tw, ty + 4, ty + th + shadow - 2);
+    rb->lcd_hline(tx + 4, tx + tw + shadow - 2, ty + th);
 
-/*
-     * Simulated rounded corners.
-     * Rockbox bitmaps are opaque here, so we cover the extreme corner pixels
-     * with the table/background color and redraw a clipped outline.
+    /*
+     * Rounded visible tile outline using the inset tile bounds.
      */
 #if LCD_DEPTH > 1
     rb->lcd_set_foreground(MJ_TABLE_BG);
 #endif
-    rb->lcd_fillrect(x, y, 2, 2);
-    rb->lcd_fillrect(x + MJ_TILE_W - 2, y, 2, 2);
-    rb->lcd_fillrect(x, y + MJ_TILE_H - 2, 2, 2);
-    rb->lcd_fillrect(x + MJ_TILE_W - 2, y + MJ_TILE_H - 2, 2, 2);
+    rb->lcd_fillrect(tx, ty, 2, 2);
+    rb->lcd_fillrect(tx + tw - 2, ty, 2, 2);
+    rb->lcd_fillrect(tx, ty + th - 2, 2, 2);
+    rb->lcd_fillrect(tx + tw - 2, ty + th - 2, 2, 2);
 
 #if LCD_DEPTH > 1
     rb->lcd_set_foreground(LCD_BLACK);
 #endif
-    rb->lcd_hline(x + 2, x + MJ_TILE_W - 3, y);
-    rb->lcd_hline(x + 2, x + MJ_TILE_W - 3, y + MJ_TILE_H - 1);
-    rb->lcd_vline(x, y + 2, y + MJ_TILE_H - 3);
-    rb->lcd_vline(x + MJ_TILE_W - 1, y + 2, y + MJ_TILE_H - 3);
+    rb->lcd_hline(tx + 2, tx + tw - 3, ty);
+    rb->lcd_hline(tx + 2, tx + tw - 3, ty + th - 1);
+    rb->lcd_vline(tx, ty + 2, ty + th - 3);
+    rb->lcd_vline(tx + tw - 1, ty + 2, ty + th - 3);
 
-    rb->lcd_fillrect(x + 1, y + 1, 1, 1);
-    rb->lcd_fillrect(x + MJ_TILE_W - 2, y + 1, 1, 1);
-    rb->lcd_fillrect(x + 1, y + MJ_TILE_H - 2, 1, 1);
-    rb->lcd_fillrect(x + MJ_TILE_W - 2, y + MJ_TILE_H - 2, 1, 1);
+    rb->lcd_fillrect(tx + 1, ty + 1, 1, 1);
+    rb->lcd_fillrect(tx + tw - 2, ty + 1, 1, 1);
+    rb->lcd_fillrect(tx + 1, ty + th - 2, 1, 1);
+    rb->lcd_fillrect(tx + tw - 2, ty + th - 2, 1, 1);
 
 #if LCD_DEPTH > 1
     rb->lcd_set_foreground(LCD_WHITE);
 #endif
-    rb->lcd_hline(x + 2, x + MJ_TILE_W - 4, y + 1);
-    rb->lcd_vline(x + 1, y + 2, y + MJ_TILE_H - 4);
+    rb->lcd_hline(tx + 2, tx + tw - 4, ty + 1);
+    rb->lcd_vline(tx + 1, ty + 2, ty + th - 4);
 
 #if LCD_DEPTH > 1
     rb->lcd_set_foreground(LCD_RGBPACK(55, 46, 34));
 #endif
-    rb->lcd_hline(x + 3, x + MJ_TILE_W - 3, y + MJ_TILE_H - 2);
-    rb->lcd_vline(x + MJ_TILE_W - 2, y + 3, y + MJ_TILE_H - 3);
+    rb->lcd_hline(tx + 3, tx + tw - 3, ty + th - 2);
+    rb->lcd_vline(tx + tw - 2, ty + 3, ty + th - 3);
+
+    /*
+     * Cast shadow outside the visible tile edge.
+     */
+#if LCD_DEPTH > 1
+    rb->lcd_set_foreground(LCD_RGBPACK(28, 24, 18));
+#endif
+    rb->lcd_vline(tx - 1, ty + 5, ty + th - 4);
+    rb->lcd_hline(tx + 5, tx + tw - 5, ty + th);
+
+#if LCD_DEPTH > 1
+    rb->lcd_set_foreground(LCD_RGBPACK(80, 66, 45));
+#endif
+    rb->lcd_vline(tx - 2, ty + 7, ty + th - 6);
+    rb->lcd_hline(tx + 7, tx + tw - 7, ty + th + 1);
+
+    if (open && !selected && !cursor && !hint) {
+#if LCD_DEPTH > 1
+        rb->lcd_set_foreground(LCD_RGBPACK(255, 214, 90));
+#endif
+        rb->lcd_drawrect(tx + 2, ty + 2, tw - 4, th - 4);
+
+#if LCD_DEPTH > 1
+        rb->lcd_set_foreground(LCD_RGBPACK(120, 90, 35));
+#endif
+        rb->lcd_hline(tx + 4, tx + tw - 5, ty + th - 4);
+    }
 
     if (selected) {
 #if LCD_DEPTH > 1
         rb->lcd_set_foreground(LCD_RGBPACK(23, 119, 218));
 #endif
-        rb->lcd_drawrect(x + 1, y + 1, MJ_TILE_W - 2, MJ_TILE_H - 2);
-        rb->lcd_drawrect(x + 2, y + 2, MJ_TILE_W - 4, MJ_TILE_H - 4);
+        rb->lcd_drawrect(tx + 1, ty + 1, tw - 2, th - 2);
+        rb->lcd_drawrect(tx + 2, ty + 2, tw - 4, th - 4);
     }
 
     if (hint) {
 #if LCD_DEPTH > 1
         rb->lcd_set_foreground(LCD_RGBPACK(255, 80, 180));
 #endif
-        rb->lcd_drawrect(x + 2, y + 2, MJ_TILE_W - 4, MJ_TILE_H - 4);
-        rb->lcd_drawrect(x + 3, y + 3, MJ_TILE_W - 6, MJ_TILE_H - 6);
+        rb->lcd_drawrect(tx + 2, ty + 2, tw - 4, th - 4);
+        rb->lcd_drawrect(tx + 3, ty + 3, tw - 6, th - 6);
     }
 
     if (cursor) {
         rb->lcd_set_drawmode(DRMODE_COMPLEMENT);
-        rb->lcd_fillrect(x + 3, y + 3, MJ_TILE_W - 6, MJ_TILE_H - 6);
+        rb->lcd_fillrect(tx + 3, ty + 3, tw - 6, th - 6);
         rb->lcd_set_drawmode(DRMODE_SOLID);
     }
 
@@ -619,11 +694,12 @@ static void draw_status_bar(void)
 static void update_screen(void)
 {
     int i;
-    int x;
-    int y;
-    int lev;
-    int row;
-    int col;
+    int n = 0;
+    int pass;
+    int idx[MJ_MAX_TILES];
+    int sx[MJ_MAX_TILES];
+    int sy[MJ_MAX_TILES];
+    int key[MJ_MAX_TILES];
 
 #if LCD_DEPTH > 1
     rb->lcd_set_background(MJ_TABLE_BG);
@@ -637,46 +713,123 @@ static void update_screen(void)
     draw_status_bar();
 
     /*
-     * Draw order:
-     *   1. lower levels first
-     *   2. upper levels later
-     *   3. within a level, draw from top-left to bottom-right
+     * Screen-space drawing order.
      *
-     * This makes overlapping tiles visually more stable and prevents
-     * lower tiles from being drawn over higher tiles.
+     * Earlier versions drew by logical lev/row/col. That works mostly,
+     * but dense overlaps can still look ambiguous. This sort draws:
+     *   - lower levels first
+     *   - then visually higher rows first
+     *   - then left-to-right
+     *
+     * Later-drawn tiles are visually "in front".
      */
-    for (lev = 0; lev < MJ_LEVS; lev++) {
-        for (row = 0; row < MJ_ROWS; row++) {
-            for (col = 0; col < MJ_COLS; col++) {
-                for (i = 0; i < mj_game_tile_count(); i++) {
-                    const struct mj_tile *t = mj_game_tile(i);
+    for (i = 0; i < mj_game_tile_count(); i++) {
+        const struct mj_tile *t = mj_game_tile(i);
+        int x;
+        int y;
 
-                    if (t == NULL) {
-                        continue;
-                    }
-
-                    if (!t->real || t->removed) {
-                        continue;
-                    }
-
-                    if (t->lev != lev || t->row != row || t->col != col) {
-                        continue;
-                    }
-
-                    tile_position(t, &x, &y);
-
-                    if (x + MJ_TILE_W < 0 || x >= LCD_WIDTH ||
-                        y + MJ_TILE_H < 0 || y >= LCD_HEIGHT) {
-                        continue;
-                    }
-
-                    draw_tile_box(x, y, t->picture, t->match, t->lev,
-                                  i == mj_game_selected_tile(),
-                                  i == mj_game_cursor_tile(),
-                                  i == hint_tile_a || i == hint_tile_b);
-                }
-            }
+        if (t == NULL) {
+            continue;
         }
+
+        if (!t->real || t->removed) {
+            continue;
+        }
+
+        tile_position(t, &x, &y);
+
+        if (t->lev <= 1 &&
+            x >= 95 && x <= 245 &&
+            y >= 118 && y <= 178) {
+            y += MJ_VISUAL_ROW_NUDGE_PX;
+        }
+
+        if (t->lev <= 1 &&
+            x >= 190 && x <= 285 &&
+            y >= 70 && y <= 205) {
+            x += MJ_VISUAL_RIGHT_NUDGE_X;
+            y += MJ_VISUAL_RIGHT_NUDGE_Y;
+        }
+
+
+        if (t->lev <= 1 &&
+            x >= 195 && x <= 265 &&
+            y >= 120 && y <= 190) {
+            x += MJ_VISUAL_RIGHT_PULL_X;
+            y += MJ_VISUAL_RIGHT_PULL_Y;
+        }
+
+        /*
+         * Visual-only pullout for open/selectable tiles.
+         * The tile remains at the same logical row/col/level, but the visual
+         * sprite is pulled slightly outward so reachable tiles look reachable.
+         */
+        if (mj_game_tile_open(i)) {
+            int center_x = LCD_WIDTH / 2;
+            int tile_center_x = x + MJ_TILE_W / 2;
+
+            if (tile_center_x < center_x - 4) {
+                x -= MJ_VISUAL_OPEN_PULL_X;
+            } else if (tile_center_x > center_x + 4) {
+                x += MJ_VISUAL_OPEN_PULL_X;
+            }
+
+            y += MJ_VISUAL_OPEN_PULL_Y;
+        }
+
+        if (t->lev == 1 && t->col == 16 &&
+            (t->row == 6 || t->row == 8)) {
+            x += MJ_VISUAL_EXACT_RIGHT_PULL_X;
+            y += MJ_VISUAL_EXACT_RIGHT_PULL_Y;
+        }
+
+        if (x + MJ_TILE_W < 0 || x >= LCD_WIDTH ||
+            y + MJ_TILE_H < 0 || y >= LCD_HEIGHT) {
+            continue;
+        }
+
+        idx[n] = i;
+        sx[n] = x;
+        sy[n] = y;
+
+        /*
+         * Big level weight guarantees upper levels are drawn over lower ones.
+         * y decides front/back within a level. x breaks ties.
+         */
+        key[n] = t->lev * 1000000 + (y + MJ_TILE_H) * 1000 + x;
+
+        n++;
+    }
+
+    for (pass = 1; pass < n; pass++) {
+        int j = pass;
+        int ti = idx[j];
+        int tx = sx[j];
+        int ty = sy[j];
+        int tk = key[j];
+
+        while (j > 0 && key[j - 1] > tk) {
+            idx[j] = idx[j - 1];
+            sx[j] = sx[j - 1];
+            sy[j] = sy[j - 1];
+            key[j] = key[j - 1];
+            j--;
+        }
+
+        idx[j] = ti;
+        sx[j] = tx;
+        sy[j] = ty;
+        key[j] = tk;
+    }
+
+    for (i = 0; i < n; i++) {
+        const struct mj_tile *t = mj_game_tile(idx[i]);
+
+        draw_tile_box(sx[i], sy[i], t->picture, t->match, t->lev,
+                      mj_game_tile_open(idx[i]),
+                      idx[i] == mj_game_selected_tile(),
+                      idx[i] == mj_game_cursor_tile(),
+                      idx[i] == hint_tile_a || idx[i] == hint_tile_b);
     }
 
     rb->lcd_update();

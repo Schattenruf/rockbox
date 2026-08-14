@@ -582,28 +582,59 @@ static bool assign_solvable_matches(unsigned int seed)
 /* Cursor                                                                    */
 /* ------------------------------------------------------------------------ */
 
+static bool tile_allowed_for_cursor_filter(int index)
+{
+    int selected;
+
+    if (!mj_game_tile_open(index)) {
+        return false;
+    }
+
+    selected = game.selected_tile;
+
+    if (selected >= 0 &&
+        selected < game.tile_count &&
+        !game.tiles[selected].removed) {
+        if (index == selected) {
+            return false;
+        }
+
+        if (game.tiles[index].match != game.tiles[selected].match) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 static int find_next_open_tile(int start, int direction)
 {
     int i;
-    int idx;
+    int index;
 
     if (game.tile_count <= 0) {
         return -1;
     }
 
-    idx = start;
+    if (direction < 0) {
+        direction = -1;
+    } else {
+        direction = 1;
+    }
+
+    index = start;
 
     for (i = 0; i < game.tile_count; i++) {
-        idx += direction;
+        index += direction;
 
-        if (idx < 0) {
-            idx = game.tile_count - 1;
-        } else if (idx >= game.tile_count) {
-            idx = 0;
+        if (index >= game.tile_count) {
+            index = 0;
+        } else if (index < 0) {
+            index = game.tile_count - 1;
         }
 
-        if (mj_game_tile_open(idx)) {
-            return idx;
+        if (tile_allowed_for_cursor_filter(index)) {
+            return index;
         }
     }
 
