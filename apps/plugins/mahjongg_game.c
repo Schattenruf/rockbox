@@ -370,6 +370,51 @@ static void layout_default(void)
     place_tile(9, 15, 4);
 }
 
+static void layout_ipod_easy(void)
+{
+    int c;
+
+    for (c = 6; c <= 18; c += 2) {
+        place_tile(4, c, 0);
+    }
+
+    for (c = 4; c <= 20; c += 2) {
+        place_tile(6, c, 0);
+        place_tile(8, c, 0);
+        place_tile(10, c, 0);
+    }
+
+    for (c = 6; c <= 18; c += 2) {
+        place_tile(12, c, 0);
+    }
+
+    for (c = 8; c <= 16; c += 2) {
+        place_tile(6, c, 1);
+        place_tile(8, c, 1);
+        place_tile(10, c, 1);
+    }
+
+    for (c = 10; c <= 14; c += 2) {
+        place_tile(12, c, 1);
+    }
+
+    for (c = 10; c <= 14; c += 2) {
+        place_tile(8, c, 2);
+        place_tile(10, c, 2);
+    }
+
+    place_tile(6, 12, 2);
+
+    place_tile(8, 11, 3);
+    place_tile(8, 13, 3);
+    place_tile(8, 15, 3);
+
+    place_tile(10, 12, 3);
+    place_tile(10, 14, 3);
+
+    place_tile(9, 13, 4);
+}
+
 static void assign_random_matches(unsigned int seed)
 {
     int i;
@@ -452,7 +497,7 @@ static bool assign_solvable_matches(unsigned int seed)
     int pair_b[MJ_MAX_TILES / 2];
     int pair_match[MJ_MAX_TILES / 2];
 
-    if (game.tile_count != MJ_MAX_TILES) {
+    if (game.tile_count <= 0 || game.tile_count > MJ_MAX_TILES || (game.tile_count & 1)) {
         return false;
     }
 
@@ -759,7 +804,7 @@ int mj_game_possible_moves(void)
 
 
 #define MJ_SAVE_MAGIC 0x4d4a4731u
-#define MJ_SAVE_VERSION 1u
+#define MJ_SAVE_VERSION 2u
 
 struct mj_save_header {
     unsigned int magic;
@@ -847,7 +892,8 @@ bool mj_game_load(int fd)
 
     if (header.magic != MJ_SAVE_MAGIC ||
         header.version != MJ_SAVE_VERSION ||
-        header.tile_count != MJ_MAX_TILES ||
+        header.tile_count <= 0 ||
+        header.tile_count > MJ_MAX_TILES ||
         header.undo_count < 0 ||
         header.undo_count > MJ_MAX_TILES / 2) {
         return false;
@@ -866,6 +912,10 @@ bool mj_game_load(int fd)
     }
 
     mj_game_init_default(header.seed);
+
+    if (header.tile_count != game.tile_count) {
+        return false;
+    }
 
     remaining = 0;
 
@@ -922,7 +972,7 @@ void mj_game_init_default(unsigned int seed)
     game.selected_tile = -1;
     game.undo_count = 0;
 
-    layout_default();
+    layout_ipod_easy();
 
     if (!assign_solvable_matches(seed)) {
         assign_random_matches(seed);

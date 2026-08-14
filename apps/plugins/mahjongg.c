@@ -31,12 +31,12 @@
  * First test sizes.
  * Later these should be derived from actual bitmap dimensions.
  */
-#define MJ_TILE_W       18
-#define MJ_TILE_H       22
-#define MJ_TILE_XSTEP    9
-#define MJ_TILE_YSTEP   11
-#define MJ_LEVEL_DX      2
-#define MJ_LEVEL_DY     -2
+#define MJ_TILE_W       22
+#define MJ_TILE_H       28
+#define MJ_TILE_XSTEP   11
+#define MJ_TILE_YSTEP   14
+#define MJ_LEVEL_DX      3
+#define MJ_LEVEL_DY     -3
 
 #define MJ_MAX_TILES   144
 #define MJ_ROWS         24
