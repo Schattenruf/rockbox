@@ -3473,9 +3473,6 @@ static void update_scroll_animation(void)
     if (center_index != index) {
         center_index = index;
         rb->queue_post(&thread_q, EV_WAKEUP, 0);
-<<<<<<< HEAD
-        slide_frame = index << 16;
-=======
         /* Same one-unit offset as in start_animation(): index<<16 is
          * the top of the step < 0 interval, not the bottom. */
         slide_frame = (index << 16) - (step < 0 ? 1 : 0);
@@ -3487,7 +3484,6 @@ static void update_scroll_animation(void)
         tick = (step < 0) ? neg : pos;
         ftick = (tick * PFREAL_ONE) >> 16;
         fade = pos / 256;
->>>>>>> 0a3446e729 (PictureFlow: fix the centre-slide flash properly, and bound the advance)
         center_slide.slide_index = center_index;
         for (i = 0; i < pf_cfg.num_slides; i++)
             left_slides[i].slide_index = center_index - 1 - i;
