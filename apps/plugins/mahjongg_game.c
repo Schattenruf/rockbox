@@ -143,12 +143,75 @@ bool mj_tile_open(const struct mj_tile *tile)
 
 bool mj_game_tile_open(int index)
 {
+    const struct mj_tile *tile;
+    bool left_blocked = false;
+    bool right_blocked = false;
+    int i;
+
     if (index < 0 || index >= game.tile_count) {
         return false;
     }
 
-    return mj_tile_open(&game.tiles[index]);
+    tile = &game.tiles[index];
+
+    if (!tile->real || tile->removed) {
+        return false;
+    }
+
+    for (i = 0; i < game.tile_count; i++) {
+        const struct mj_tile *other;
+        int dr;
+        int dc;
+        int abs_dr;
+        int abs_dc;
+
+        if (i == index) {
+            continue;
+        }
+
+        other = &game.tiles[i];
+
+        if (!other->real || other->removed) {
+            continue;
+        }
+
+        dr = other->row - tile->row;
+        dc = other->col - tile->col;
+
+        abs_dr = dr < 0 ? -dr : dr;
+        abs_dc = dc < 0 ? -dc : dc;
+
+        /*
+         * Each tile occupies a 2 x 2 footprint in the logical half-tile
+         * coordinate system. Any higher tile whose projected footprint
+         * overlaps this footprint covers the top face.
+         */
+        if (other->lev > tile->lev &&
+            abs_dr < 2 &&
+            abs_dc < 2) {
+            return false;
+        }
+
+        /*
+         * Side blocking only applies on the same level. Direct left/right
+         * neighbors are two logical column units away. Their vertical
+         * footprints must overlap.
+         */
+        if (other->lev == tile->lev && abs_dr < 2) {
+            if (dc == -2) {
+                left_blocked = true;
+            }
+
+            if (dc == 2) {
+                right_blocked = true;
+            }
+        }
+    }
+
+    return !left_blocked || !right_blocked;
 }
+
+
 
 /* ------------------------------------------------------------------------ */
 /* Grid and blockage, based on xmahjongg Game::init_grid/init_blockage        */
