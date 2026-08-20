@@ -1,4 +1,5 @@
 #include "mahjongg_game.h"
+#include "mahjongg_gnome_layouts.h"
 
 struct mj_move {
     int a;
@@ -21,6 +22,8 @@ struct mj_game_state {
     struct mj_move undo_stack[MJ_MAX_TILES / 2];
     int undo_count;
 };
+
+static int mj_current_layout_id = 0;
 
 static struct mj_game_state game;
 
@@ -403,6 +406,115 @@ static bool place_tile(int row, int col, int lev)
     return true;
 }
 
+int mj_game_layout_count(void)
+{
+    return MJ_GNOME_LAYOUT_COUNT + 1;
+}
+
+int mj_game_layout_id(void)
+{
+    return mj_current_layout_id;
+}
+
+const char *mj_game_layout_name(int layout_id)
+{
+    if (layout_id == 0) {
+        return "Rockbox Compact 80";
+    }
+
+    if (layout_id < 1 ||
+        layout_id > MJ_GNOME_LAYOUT_COUNT) {
+        return "";
+    }
+
+    return mj_gnome_layouts[layout_id - 1].name;
+}
+
+const char *mj_game_layout_score_name(int layout_id)
+{
+    if (layout_id == 0) {
+        return "rockbox_compact_80";
+    }
+
+    if (layout_id < 1 ||
+        layout_id > MJ_GNOME_LAYOUT_COUNT) {
+        return "";
+    }
+
+    return mj_gnome_layouts[layout_id - 1].score_name;
+}
+
+int mj_game_layout_tile_count(int layout_id)
+{
+    if (layout_id == 0) {
+        return 80;
+    }
+
+    if (layout_id < 1 ||
+        layout_id > MJ_GNOME_LAYOUT_COUNT) {
+        return 0;
+    }
+
+    return mj_gnome_layouts[layout_id - 1].slot_count;
+}
+
+bool mj_game_set_layout(int layout_id)
+{
+    if (layout_id < 0 ||
+        layout_id > MJ_GNOME_LAYOUT_COUNT) {
+        return false;
+    }
+
+    mj_current_layout_id = layout_id;
+    return true;
+}
+
+static bool layout_gnome(int layout_id)
+{
+    const struct mj_gnome_layout *layout;
+    int i;
+
+    if (layout_id < 0 ||
+        layout_id >= MJ_GNOME_LAYOUT_COUNT) {
+        layout_id = 0;
+    }
+
+    layout = &mj_gnome_layouts[layout_id];
+
+    game.tile_count = 0;
+    game.remaining = 0;
+
+    for (i = 0; i < layout->slot_count; i++) {
+        const struct mj_gnome_slot *slot;
+
+        slot = &layout->slots[i];
+
+        /*
+         * GNOME stores x, y, layer.
+         * Rockbox place_tile() expects row, column, level.
+         */
+        /*
+         * GNOME map coordinates may begin at x=0 and y=0.
+         * The Rockbox/xmahjongg grid reserves a two-unit border around
+         * the board, so translate the complete GNOME map by +2/+2.
+         *
+         * This is one global translation and does not change the layout's
+         * shape, spacing, blocking relationships or layer structure.
+         */
+        if (!place_tile(
+                slot->y + 2,
+                slot->x + 2,
+                slot->layer)) {
+            game.tile_count = 0;
+            game.remaining = 0;
+            return false;
+        }
+    }
+
+    return game.tile_count == layout->slot_count;
+}
+
+
 static void layout_default(void)
 {
     int i;
@@ -496,7 +608,35 @@ static void layout_ipod_easy(void)
     place_tile(10, 14, 3);
 
     place_tile(9, 13, 4);
+
+    /*
+     * Eight additional slots for the compact 80-tile adaptation.
+     * The additions remain inside the existing board footprint, so the
+     * layout stays suitable for the iPod display.
+     */
+    place_tile(6, 10, 2);
+    place_tile(6, 14, 2);
+
+    place_tile(12, 10, 2);
+    place_tile(12, 12, 2);
+    place_tile(12, 14, 2);
+
+    place_tile(10, 10, 3);
+
+    place_tile(6, 11, 3);
+    place_tile(6, 13, 3);
 }
+
+static bool layout_selected(void)
+{
+    if (mj_current_layout_id == 0) {
+        layout_ipod_easy();
+        return game.tile_count == 80;
+    }
+
+    return layout_gnome(mj_current_layout_id - 1);
+}
+
 
 static void assign_random_matches(unsigned int seed)
 {
@@ -1086,7 +1226,17 @@ void mj_game_init_default(unsigned int seed)
     game.selected_tile = -1;
     game.undo_count = 0;
 
-    layout_ipod_easy();
+    /*
+     * Use the compact 80-tile Rockbox layout by default.
+     * Imported GNOME 80 layouts remain available for the future
+     * layout-selection menu.
+     */
+    if (!layout_selected()) {
+        game.tile_count = 0;
+        game.remaining = 0;
+        layout_ipod_easy();
+        mj_current_layout_id = 0;
+    }
 
     if (!assign_solvable_matches(seed)) {
         assign_random_matches(seed);

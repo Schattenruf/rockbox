@@ -1,0 +1,24 @@
+GNOME Mahjongg Smooth Theme
+===========================
+
+Source:
+https://gitlab.gnome.org/GNOME/gnome-mahjongg
+
+Theme file:
+data/themes/smooth.png
+
+Copyright:
+2004-2025 Mahjongg Contributors
+
+License:
+GNU General Public License, version 2 or later
+SPDX-License-Identifier: GPL-2.0-or-later
+
+Original project:
+https://github.com/j-evins/smooth-tileset
+
+Modifications for Rockbox:
+- Theme atlas scaled to 32x39 pixel patterns
+- 42 gameplay images extracted
+- 42 dimmed variants generated
+- Images rearranged into a Rockbox bitmap strip

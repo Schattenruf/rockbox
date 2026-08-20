@@ -33,8 +33,8 @@
  * Later these should be derived from actual bitmap dimensions.
  */
 #define MJ_TILE_GAP_PX 1
-#define MJ_TILE_W 28
-#define MJ_TILE_H 38
+#define MJ_TILE_W 20
+#define MJ_TILE_H 27
 #define MJ_PATTERN_W (MJ_TILE_W + MJ_LEVEL_DX)
 #define MJ_PATTERN_H (MJ_TILE_H - MJ_LEVEL_DY)
 #define MJ_TILE_XSTEP (MJ_TILE_W / 2)
@@ -135,9 +135,9 @@ static void clear_hint(void)
 
 #define MJ_STOPWATCH_SAVE_MAGIC 0x4d4a5731u
 #define MJ_SCORE_MAGIC 0x4d4a5331u
-#define MJ_CURRENT_LAYOUT_ID 0
 
 static bool mj_stopwatch_enabled = true;
+static bool mj_random_maps_enabled = false;
 static bool mj_dead_end_prompted = false;
 static long mj_stopwatch_start_tick = 0;
 static long mj_best_elapsed_ticks = -1;
@@ -300,6 +300,14 @@ static bool mj_score_file_write(const struct mj_score_file *scores)
 
 static void mj_score_load_best(void)
 {
+
+    /*
+     * Clear the previously loaded layout record first. If the selected
+     * layout has no record yet, Best must remain --:-- instead of showing
+     * the previous layout's time.
+     */
+    mj_best_elapsed_ticks = -1;
+
     struct mj_score_file scores;
     unsigned int best_seconds;
 
@@ -307,12 +315,12 @@ static void mj_score_load_best(void)
 
     mj_score_file_read(&scores);
 
-    if (MJ_CURRENT_LAYOUT_ID < 0 ||
-        MJ_CURRENT_LAYOUT_ID >= MJ_MAX_LAYOUT_RECORDS) {
+    if (mj_game_layout_id() < 0 ||
+        mj_game_layout_id() >= MJ_MAX_LAYOUT_RECORDS) {
         return;
     }
 
-    best_seconds = scores.best_seconds[MJ_CURRENT_LAYOUT_ID];
+    best_seconds = scores.best_seconds[mj_game_layout_id()];
 
     if (best_seconds == MJ_SCORE_EMPTY) {
         return;
@@ -331,8 +339,8 @@ static void mj_score_save_best(long elapsed_ticks)
         return;
     }
 
-    if (MJ_CURRENT_LAYOUT_ID < 0 ||
-        MJ_CURRENT_LAYOUT_ID >= MJ_MAX_LAYOUT_RECORDS) {
+    if (mj_game_layout_id() < 0 ||
+        mj_game_layout_id() >= MJ_MAX_LAYOUT_RECORDS) {
         return;
     }
 
@@ -340,7 +348,7 @@ static void mj_score_save_best(long elapsed_ticks)
 
     mj_score_file_read(&scores);
 
-    current_best = scores.best_seconds[MJ_CURRENT_LAYOUT_ID];
+    current_best = scores.best_seconds[mj_game_layout_id()];
 
     if (current_best != MJ_SCORE_EMPTY &&
         elapsed_seconds >= current_best) {
@@ -348,7 +356,7 @@ static void mj_score_save_best(long elapsed_ticks)
         return;
     }
 
-    scores.best_seconds[MJ_CURRENT_LAYOUT_ID] = elapsed_seconds;
+    scores.best_seconds[mj_game_layout_id()] = elapsed_seconds;
 
     if (mj_score_file_write(&scores)) {
         mj_best_elapsed_ticks = (long)elapsed_seconds * HZ;
@@ -559,7 +567,13 @@ static void draw_status_bar(void)
     } else if (mj_game_selected_tile() >= 0) {
         rb->lcd_putsxy(2, 22, "Selected");
     } else {
-        rb->lcd_putsxy(2, 22, "Select pair");
+        const char *layout_name;
+
+        layout_name = mj_game_layout_name(
+            mj_game_layout_id()
+        );
+
+        rb->lcd_putsxy(2, 22, layout_name);
     }
 
 #if LCD_DEPTH > 1
@@ -874,6 +888,8 @@ enum {
     MJ_MENU_RESUME = 0,
     MJ_MENU_NEW_GAME,
     MJ_MENU_TOGGLE_TIMER,
+    MJ_MENU_SELECT_LAYOUT,
+    MJ_MENU_RANDOM_MAPS,
     MJ_MENU_HELP,
     MJ_MENU_SAVE_QUIT,
     MJ_MENU_QUIT
@@ -894,26 +910,145 @@ static void show_help(void)
     rb->button_get(true);
 }
 
+static void choose_random_layout(void)
+{
+    int layout_count;
+    int current_layout;
+    int next_layout;
+    unsigned long random_value;
+
+    layout_count = mj_game_layout_count();
+    current_layout = mj_game_layout_id();
+
+    if (layout_count <= 1) {
+        return;
+    }
+
+    random_value = (unsigned long)*rb->current_tick;
+    random_value ^= (unsigned long)mj_stopwatch_elapsed_ticks();
+    random_value ^= (unsigned long)(current_layout * 1103515245u);
+
+    next_layout = (int)(random_value % layout_count);
+
+    if (next_layout == current_layout) {
+        next_layout = (next_layout + 1) % layout_count;
+    }
+
+    mj_game_set_layout(next_layout);
+}
+
+static void start_new_game_with_layout_policy(void)
+{
+    if (mj_random_maps_enabled) {
+        choose_random_layout();
+    }
+
+    mj_best_elapsed_ticks = -1;
+    rb->remove(MAHJONGG_SAVE_FILE);
+
+    start_new_game();
+    mj_score_load_best();
+
+    rb->splashf(HZ,
+                "%s",
+                mj_game_layout_name(mj_game_layout_id()));
+}
+
+static bool select_layout_menu(void)
+{
+    int selection;
+    int previous_layout;
+
+    MENUITEM_STRINGLIST(layout_menu, "Select Layout", NULL,
+                        "Rockbox Compact 80",
+                        "Turtle 80",
+                        "The Ziggurat 80",
+                        "Four Bridges 80",
+                        "Cloud 80",
+                        "Tic-Tac-Toe 80",
+                        "Red Dragon 80",
+                        "Overpass 80",
+                        "Pyramid's Walls 80",
+                        "Confounding Cross 80",
+                        "Taipei 80");
+
+    previous_layout = mj_game_layout_id();
+    selection = previous_layout;
+
+    selection = rb->do_menu(&layout_menu,
+                            &selection,
+                            NULL,
+                            false);
+
+    if (selection < 0 ||
+        selection >= mj_game_layout_count()) {
+        return false;
+    }
+
+    if (selection == previous_layout) {
+        return false;
+    }
+
+    if (!mj_game_set_layout(selection)) {
+        rb->splash(HZ, "Layout error");
+        return false;
+    }
+
+    /*
+     * The saved game belongs to the previous board geometry.
+     * Records remain in the shared mahjongg.score file.
+     */
+    rb->remove(MAHJONGG_SAVE_FILE);
+
+    start_new_game();
+    mj_score_load_best();
+
+    rb->splashf(HZ,
+                "%s",
+                mj_game_layout_name(selection));
+
+    return true;
+}
+
 static int mahjongg_menu(void)
 {
     int selected = 0;
 
-    MENUITEM_STRINGLIST(menu, "Mahjongg", NULL,
+    MENUITEM_STRINGLIST(menu_random_off, "Mahjongg", NULL,
                         "Resume",
                         "New Game",
                         "Toggle Stopwatch",
+                        "Select Layout",
+                        "Random Maps: Off",
+                        "Help",
+                        /*"Audio Playback",*/
+                        "Save and Quit",
+                        "Quit without Saving");
+
+    MENUITEM_STRINGLIST(menu_random_on, "Mahjongg", NULL,
+                        "Resume",
+                        "New Game",
+                        "Toggle Stopwatch",
+                        "Select Layout",
+                        "Random Maps: On",
                         "Help",
                         /*"Audio Playback",*/
                         "Save and Quit",
                         "Quit without Saving");
 
     while (true) {
-        switch (rb->do_menu(&menu, &selected, NULL, false)) {
+        switch (rb->do_menu(
+                    mj_random_maps_enabled
+                        ? &menu_random_on
+                        : &menu_random_off,
+                    &selected,
+                    NULL,
+                    false)) {
             case MJ_MENU_RESUME:
                 return MJ_MENU_RESUME;
 
             case MJ_MENU_NEW_GAME:
-                start_new_game();
+                start_new_game_with_layout_policy();
                 return MJ_MENU_RESUME;
 
             case MJ_MENU_TOGGLE_TIMER:
@@ -927,6 +1062,24 @@ static int mahjongg_menu(void)
                 }
 
                 return MJ_MENU_RESUME;
+
+            case MJ_MENU_SELECT_LAYOUT:
+                if (select_layout_menu()) {
+                    return MJ_MENU_RESUME;
+                }
+                break;
+
+            case MJ_MENU_RANDOM_MAPS:
+                mj_random_maps_enabled =
+                    !mj_random_maps_enabled;
+
+                if (mj_random_maps_enabled) {
+                    rb->splash(HZ, "Random Maps on");
+                } else {
+                    rb->splash(HZ, "Random Maps off");
+                }
+
+                break;
 
             case MJ_MENU_HELP:
                 show_help();
