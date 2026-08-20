@@ -146,6 +146,10 @@ bool mj_game_tile_open(int index)
     const struct mj_tile *tile;
     bool left_blocked = false;
     bool right_blocked = false;
+    int x;
+    int y_above;
+    int y_bottom_half;
+    int layer;
     int i;
 
     if (index < 0 || index >= game.tile_count) {
@@ -158,12 +162,16 @@ bool mj_game_tile_open(int index)
         return false;
     }
 
+    x = tile->col;
+    y_above = tile->row - 1;
+    y_bottom_half = tile->row + 1;
+    layer = tile->lev;
+
     for (i = 0; i < game.tile_count; i++) {
         const struct mj_tile *other;
-        int dr;
-        int dc;
-        int abs_dr;
-        int abs_dc;
+        int other_x;
+        int other_y;
+        int other_layer;
 
         if (i == index) {
             continue;
@@ -175,41 +183,53 @@ bool mj_game_tile_open(int index)
             continue;
         }
 
-        dr = other->row - tile->row;
-        dc = other->col - tile->col;
-
-        abs_dr = dr < 0 ? -dr : dr;
-        abs_dc = dc < 0 ? -dc : dc;
+        other_y = other->row;
 
         /*
-         * Each tile occupies a 2 x 2 footprint in the logical half-tile
-         * coordinate system. Any higher tile whose projected footprint
-         * overlaps this footprint covers the top face.
+         * Exact GNOME Mahjongg geometry:
+         * only tiles whose vertical footprint overlaps this tile can
+         * block its sides or cover its top face.
          */
-        if (other->lev > tile->lev &&
-            abs_dr < 2 &&
-            abs_dc < 2) {
-            return false;
+        if (other_y < y_above ||
+            other_y > y_bottom_half) {
+            continue;
         }
 
+        other_layer = other->lev;
+        other_x = other->col;
+
         /*
-         * Side blocking only applies on the same level. Direct left/right
-         * neighbors are two logical column units away. Their vertical
-         * footprints must overlap.
+         * A tile on the same layer blocks the left or right side when
+         * its logical x coordinate differs by exactly two half-tile
+         * units.
          */
-        if (other->lev == tile->lev && abs_dr < 2) {
-            if (dc == -2) {
+        if (other_layer == layer) {
+            if (other_x == x - 2) {
                 left_blocked = true;
             }
 
-            if (dc == 2) {
+            if (other_x == x + 2) {
                 right_blocked = true;
+            }
+        } else if (other_layer > layer) {
+            /*
+             * A tile on any higher layer covers this tile when its x
+             * coordinate lies within one half-tile unit of this tile.
+             */
+            if (other_x >= x - 1 &&
+                other_x <= x + 1) {
+                return false;
             }
         }
     }
 
-    return !left_blocked || !right_blocked;
+    if (left_blocked && right_blocked) {
+        return false;
+    }
+
+    return true;
 }
+
 
 
 

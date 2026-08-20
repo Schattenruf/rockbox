@@ -33,12 +33,14 @@
  * Later these should be derived from actual bitmap dimensions.
  */
 #define MJ_TILE_GAP_PX 1
-#define MJ_TILE_W       28
-#define MJ_TILE_H       36
-#define MJ_TILE_XSTEP   11
-#define MJ_TILE_YSTEP   14
-#define MJ_LEVEL_DX 3
-#define MJ_LEVEL_DY -3
+#define MJ_TILE_W 28
+#define MJ_TILE_H 38
+#define MJ_PATTERN_W (MJ_TILE_W + MJ_LEVEL_DX)
+#define MJ_PATTERN_H (MJ_TILE_H - MJ_LEVEL_DY)
+#define MJ_TILE_XSTEP (MJ_TILE_W / 2)
+#define MJ_TILE_YSTEP (MJ_TILE_H / 2)
+#define MJ_LEVEL_DX (MJ_TILE_W / 7)
+#define MJ_LEVEL_DY -(MJ_TILE_H / 10)
 
 #define MJ_MAX_TILES   144
 #define MJ_ROWS         24
@@ -417,34 +419,30 @@ static void show_hint(void)
 /* Positioning and rendering                                                 */
 /* ------------------------------------------------------------------------ */
 
-static void tile_position(const struct mj_tile *t, int *x, int *y)
+static void tile_position(const struct mj_tile *tile, int *x, int *y)
 {
-    /*
-     * Simplified xmahjongg Board::position():
-     *
-     * x = layout_x + tile_w * (col / 2)
-     *             + half tile if odd col
-     *             + level shadow offset
-     *
-     * y = layout_y + tile_h * (row / 2)
-     *             + half tile if odd row
-     *             + level shadow offset
-     */
-
     const int layout_x = 16;
     const int layout_y = 4;
 
+    /*
+     * Exact GNOME Mahjongg projection:
+     *
+     * x = x_offset + slot.x * tile_width / 2
+     *              + layer * tile_width / 7
+     *
+     * y = y_offset + slot.y * tile_height / 2
+     *              - layer * tile_height / 10
+     *
+     * No additional row, column, availability or screen-zone offsets
+     * are applied after this calculation.
+     */
     *x = layout_x
-       + MJ_TILE_XSTEP * t->col
-       + MJ_LEVEL_DX * t->lev;
+       + tile->col * MJ_TILE_XSTEP
+       + tile->lev * MJ_LEVEL_DX;
 
     *y = layout_y
-       + MJ_TILE_YSTEP * t->row
-       + MJ_LEVEL_DY * t->lev;
-
-
-
-
+       + tile->row * MJ_TILE_YSTEP
+       + tile->lev * MJ_LEVEL_DY;
 }
 
 static void draw_tile_box(int x, int y, int picture, int match, int level,
@@ -460,7 +458,7 @@ static void draw_tile_box(int x, int y, int picture, int match, int level,
     (void)match;
     (void)level;
 
-    picture_count = BMPWIDTH_mahjongg_tiles / MJ_TILE_W;
+    picture_count = BMPWIDTH_mahjongg_tiles / MJ_PATTERN_W;
 
     if (picture_count <= 0) {
         picture_count = 1;
@@ -469,10 +467,12 @@ static void draw_tile_box(int x, int y, int picture, int match, int level,
     normal_picture_count = picture_count;
 
     /*
-     * The bitmap contains 42 normal pictures followed by 42 dimmed
-     * pictures. Keep compatibility with a traditional 42-picture sheet.
+     * The sheet contains three banks:
+     * normal, dimmed and GNOME-highlighted.
      */
-    if (picture_count >= 84) {
+    if (picture_count >= 126) {
+        normal_picture_count = picture_count / 3;
+    } else if (picture_count >= 84) {
         normal_picture_count = picture_count / 2;
     }
 
@@ -483,58 +483,37 @@ static void draw_tile_box(int x, int y, int picture, int match, int level,
     picture %= normal_picture_count;
     sprite_picture = picture;
 
-    if (!open && !selected && !cursor && !hint &&
-        picture_count >= normal_picture_count * 2) {
+    if ((cursor || selected || hint) &&
+        picture_count >= normal_picture_count * 3) {
+        sprite_picture += normal_picture_count * 2;
+    } else if (!open &&
+               picture_count >= normal_picture_count * 2) {
         sprite_picture += normal_picture_count;
     }
 
     /*
-     * The source artwork already contains the tile body, rounded corners,
-     * border and depth edge. Do not draw another shadow or side face here.
-     * Adding a second depth treatment makes neighboring tiles appear to
-     * overlap much more strongly than the logical layout specifies.
+     * Draw the complete GNOME theme pattern. It contains the tile face
+     * and the isometric right/bottom extension. Magenta pixels are
+     * transparent, so higher tiles do not erase tiles below.
      */
-    rb->lcd_bitmap_part(mahjongg_tiles,
-                        sprite_picture * MJ_TILE_W,
-                        0,
-                        STRIDE(SCREEN_MAIN,
-                               BMPWIDTH_mahjongg_tiles,
-                               BMPHEIGHT_mahjongg_tiles),
-                        x,
-                        y,
-                        MJ_TILE_W,
-                        MJ_TILE_H);
+    rb->lcd_bitmap_transparent_part(
+        mahjongg_tiles,
+        sprite_picture * MJ_PATTERN_W,
+        0,
+        STRIDE(
+            SCREEN_MAIN,
+            BMPWIDTH_mahjongg_tiles,
+            BMPHEIGHT_mahjongg_tiles
+        ),
+        x,
+        y,
+        MJ_PATTERN_W,
+        MJ_PATTERN_H
+    );
 
-    /*
-     * Open tiles stay visually clean. Availability is already communicated
-     * by using dimmed sprites for blocked tiles.
-     */
-    if (selected) {
-#if LCD_DEPTH > 1
-        rb->lcd_set_foreground(LCD_RGBPACK(25, 125, 235));
-#endif
-        rb->lcd_drawrect(x + 1, y + 1,
-                         MJ_TILE_W - 2, MJ_TILE_H - 2);
-        rb->lcd_drawrect(x + 2, y + 2,
-                         MJ_TILE_W - 4, MJ_TILE_H - 4);
-    }
 
-    if (hint) {
-#if LCD_DEPTH > 1
-        rb->lcd_set_foreground(LCD_RGBPACK(255, 70, 180));
-#endif
-        rb->lcd_drawrect(x + 1, y + 1,
-                         MJ_TILE_W - 2, MJ_TILE_H - 2);
-        rb->lcd_drawrect(x + 2, y + 2,
-                         MJ_TILE_W - 4, MJ_TILE_H - 4);
-    }
 
-    if (cursor) {
-        rb->lcd_set_drawmode(DRMODE_COMPLEMENT);
-        rb->lcd_fillrect(x + 3, y + 3,
-                         MJ_TILE_W - 6, MJ_TILE_H - 6);
-        rb->lcd_set_drawmode(DRMODE_SOLID);
-    }
+
 
 #if LCD_DEPTH > 1
     rb->lcd_set_foreground(oldfg);
@@ -611,6 +590,40 @@ static bool handle_dead_end(void)
     return false;
 }
 
+static int compare_tile_slots(const struct mj_tile *a,
+                              const struct mj_tile *b)
+{
+    int layer_difference;
+    int x_difference;
+    int y_difference;
+
+    /*
+     * Exact comparator used by GNOME Mahjongg:
+     * lowest layer first.
+     */
+    layer_difference = a->lev - b->lev;
+
+    if (layer_difference != 0) {
+        return layer_difference;
+    }
+
+    /*
+     * Within a layer, sort diagonally from top-left to bottom-right.
+     */
+    x_difference = a->col - b->col;
+    y_difference = a->row - b->row;
+
+    if (x_difference > y_difference) {
+        return -1;
+    }
+
+    if (x_difference < y_difference) {
+        return 1;
+    }
+
+    return x_difference;
+}
+
 static void update_screen(void)
 {
     int i;
@@ -619,7 +632,13 @@ static void update_screen(void)
     int idx[MJ_MAX_TILES];
     int sx[MJ_MAX_TILES];
     int sy[MJ_MAX_TILES];
-    int key[MJ_MAX_TILES];
+    int board_min_x = 32767;
+    int board_min_y = 32767;
+    int board_max_x = -32768;
+    int board_max_y = -32768;
+    int board_offset_x = 0;
+    int board_offset_y = 0;
+    const int board_area_top = 32;
 
 #if LCD_DEPTH > 1
     rb->lcd_set_background(MJ_TABLE_BG);
@@ -629,96 +648,149 @@ static void update_screen(void)
     rb->lcd_clear_display();
 
     draw_table_background();
-
     draw_status_bar();
 
     /*
-     * Screen-space drawing order.
-     *
-     * Earlier versions drew by logical lev/row/col. That works mostly,
-     * but dense overlaps can still look ambiguous. This sort draws:
-     *   - lower levels first
-     *   - then visually higher rows first
-     *   - then left-to-right
-     *
-     * Later-drawn tiles are visually "in front".
+     * Determine the complete board bounds from all real layout slots,
+     * including removed tiles. This keeps the board stationary while
+     * pairs are removed.
      */
     for (i = 0; i < mj_game_tile_count(); i++) {
-        const struct mj_tile *t = mj_game_tile(i);
+        const struct mj_tile *tile;
         int x;
         int y;
 
-        if (t == NULL) {
+        tile = mj_game_tile(i);
+
+        if (tile == NULL || !tile->real) {
             continue;
         }
 
-        if (!t->real || t->removed) {
+        tile_position(tile, &x, &y);
+
+        if (x < board_min_x) {
+            board_min_x = x;
+        }
+
+        if (y < board_min_y) {
+            board_min_y = y;
+        }
+
+        if (x + MJ_PATTERN_W > board_max_x) {
+            board_max_x = x + MJ_PATTERN_W;
+        }
+
+        if (y + MJ_PATTERN_H > board_max_y) {
+            board_max_y = y + MJ_PATTERN_H;
+        }
+    }
+
+    if (board_max_x > board_min_x &&
+        board_max_y > board_min_y) {
+        int board_width;
+        int board_height;
+        int available_height;
+
+        board_width = board_max_x - board_min_x;
+        board_height = board_max_y - board_min_y;
+        available_height = LCD_HEIGHT - board_area_top;
+
+        board_offset_x =
+            (LCD_WIDTH - board_width) / 2 - board_min_x;
+
+        board_offset_y =
+            board_area_top
+            + (available_height - board_height) / 2
+            - board_min_y;
+    }
+
+    /*
+     * Position every tile exactly once. Availability must never alter
+     * a tile's visible position.
+     */
+    for (i = 0; i < mj_game_tile_count(); i++) {
+        const struct mj_tile *tile;
+        int x;
+        int y;
+
+        tile = mj_game_tile(i);
+
+        if (tile == NULL) {
             continue;
         }
 
-        tile_position(t, &x, &y);
+        if (!tile->real || tile->removed) {
+            continue;
+        }
 
-        if (x + MJ_TILE_W < 0 || x >= LCD_WIDTH ||
-            y + MJ_TILE_H < 0 || y >= LCD_HEIGHT) {
+        tile_position(tile, &x, &y);
+
+        /*
+         * Apply one global board translation. Relative tile positions,
+         * layer projection, blocking and draw order remain unchanged.
+         */
+        x += board_offset_x;
+        y += board_offset_y;
+
+        if (x + MJ_PATTERN_W < 0 || x >= LCD_WIDTH ||
+            y + MJ_PATTERN_H < 0 || y >= LCD_HEIGHT) {
             continue;
         }
 
         idx[n] = i;
         sx[n] = x;
         sy[n] = y;
-
-        /*
-         * Big level weight guarantees upper levels are drawn over lower ones.
-         * y decides front/back within a level. x breaks ties.
-         */
-        /*
-         * Unified logical geometry order.
-         *
-         * Level is the dominant dimension. Higher levels are always drawn
-         * after lower levels. Row and column only order tiles within one
-         * level and do not change blocking or visible positions.
-         */
-        /*
-         * Stable logical stacking order.
-         * Lower layers are drawn first. Higher layers always appear above
-         * lower layers. Row and column only order tiles within one layer.
-         */
-        key[n] = t->lev * 1000000
-               + t->row * 1000
-               + t->col;
-
         n++;
     }
 
+    /*
+     * Stable insertion sort using the exact GNOME Mahjongg slot
+     * comparator. GNOME stores its map slots in this order and draws
+     * them sequentially.
+     */
     for (pass = 1; pass < n; pass++) {
-        int j = pass;
-        int ti = idx[j];
-        int tx = sx[j];
-        int ty = sy[j];
-        int tk = key[j];
+        int position = pass;
+        int saved_index = idx[pass];
+        int saved_x = sx[pass];
+        int saved_y = sy[pass];
 
-        while (j > 0 && key[j - 1] > tk) {
-            idx[j] = idx[j - 1];
-            sx[j] = sx[j - 1];
-            sy[j] = sy[j - 1];
-            key[j] = key[j - 1];
-            j--;
+        while (position > 0) {
+            const struct mj_tile *previous;
+            const struct mj_tile *current;
+
+            previous = mj_game_tile(idx[position - 1]);
+            current = mj_game_tile(saved_index);
+
+            if (compare_tile_slots(previous, current) <= 0) {
+                break;
+            }
+
+            idx[position] = idx[position - 1];
+            sx[position] = sx[position - 1];
+            sy[position] = sy[position - 1];
+            position--;
         }
 
-        idx[j] = ti;
-        sx[j] = tx;
-        sy[j] = ty;
-        key[j] = tk;
+        idx[position] = saved_index;
+        sx[position] = saved_x;
+        sy[position] = saved_y;
     }
 
     for (i = 0; i < n; i++) {
-        const struct mj_tile *t = mj_game_tile(idx[i]);
+        const struct mj_tile *tile;
 
-        draw_tile_box(sx[i], sy[i], t->picture, t->match, t->lev,
+        tile = mj_game_tile(idx[i]);
+
+        draw_tile_box(sx[i],
+                      sy[i],
+                      tile->picture,
+                      tile->match,
+                      tile->lev,
                       mj_game_tile_open(idx[i]),
                       idx[i] == mj_game_selected_tile(),
                       idx[i] == mj_game_cursor_tile(),
-                      idx[i] == hint_tile_a || idx[i] == hint_tile_b);
+                      idx[i] == hint_tile_a ||
+                      idx[i] == hint_tile_b);
     }
 
     rb->lcd_update();
